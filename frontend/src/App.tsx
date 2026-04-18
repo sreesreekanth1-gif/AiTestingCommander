@@ -1,0 +1,2181 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Network, Database, FileText,
+  Monitor, Shield, Box, Zap, ClipboardList, GitBranch,
+  ChevronDown, Settings, Sun, Moon,
+  CheckCircle2, XCircle, X, WifiOff, AlertTriangle, Copy, Check, Search,
+  RefreshCw, BarChart2, Upload, Link2, Edit3, FileUp, Minus,
+  ChevronUp, Filter, Play, Pencil, Download, Trash2, Plus,
+  ArrowUpFromLine, ArrowDownFromLine
+} from 'lucide-react';
+import './index.css';
+
+const BACKEND_API_BASE = '/api';
+
+interface PlatformConfig {
+  label: string;
+  placeholder: string;
+}
+
+const PLATFORM_ISSUE_ID: Record<string, PlatformConfig> = {
+  Jira:     { label: 'Jira Issue ID',             placeholder: 'e.g. PROJ-1234' },
+  ADO:      { label: 'ADO Work Item ID',          placeholder: 'e.g. 1234' },
+  "X-Ray":  { label: 'X-Ray Test ID',            placeholder: 'e.g. TEST-001' },
+  TestRail: { label: 'TestRail Case ID',          placeholder: 'e.g. C1234' },
+  QTest:    { label: 'QTest Requirement ID',      placeholder: 'e.g. 12/456  (projectId/reqId)' },
+};
+
+const TOOL_COLUMN_LABEL: Record<string, string> = {
+  Jira:     'Jira ID',
+  ADO:      'ADO Work Item ID',
+  'X-Ray':  'X-Ray Test ID',
+  TestRail: 'TestRail Case ID',
+  QTest:    'QTest ID',
+};
+
+const getPlatformIssueId = (tool: string): PlatformConfig =>
+  PLATFORM_ISSUE_ID[tool] || { label: `${tool} Issue ID`, placeholder: 'e.g. ISSUE-001' };
+
+
+const getGapAnalysisSteps = (provider: string, tool: string): string[] => [
+  `Fetching ${tool} issue...`,
+  'Preparing requirement context...',
+  `Verifying ${provider} connection...`,
+  `Running ${provider} analysis...`,
+  'Waiting for gap analysis response...',
+];
+
+const getTestConnectionSteps = (type: string): string[] => [
+  `Connecting to ${type}...`,
+  `Verifying ${type} credentials...`,
+  `Testing ${type} connection...`,
+  `Finalizing ${type} verification...`,
+];
+
+const getTestPlanSteps = (): string[] => [
+  'Validating requirements...',
+  'Analyzing test scope...',
+  'Generating test plan structure...',
+  'Adding test cases...',
+  'Finalizing test plan...',
+];
+
+const getTestCaseSteps = (): string[] => [
+  'Validating requirements...',
+  'Analyzing test scenarios...',
+  'Generating test case structure...',
+  'Adding test steps and expected results...',
+  'Finalizing test cases...',
+];
+
+const getTestScenariosSteps = (): string[] => [
+  'Validating requirements...',
+  'Analyzing test scope...',
+  'Extracting test scenarios...',
+  'Structuring scenario details...',
+  'Finalizing Test Scenarios...',
+];
+
+const getUploadSteps = (): string[] => [
+  'Preparing upload...',
+  'Uploading to ALM...',
+  'Verifying upload...',
+  'Finalizing upload...',
+];
+
+interface Step {
+  id: string;
+  label: string;
+  icon: any;
+  hasArrow?: boolean;
+}
+
+const STEPS: Step[] = [
+  { id: 'connection', label: 'Test Connection', icon: Network },
+  { id: 'testplan', label: 'Create Test Plan', icon: FileText },
+  { id: 'testcases', label: 'Create Test Cases', icon: ClipboardList },
+  { id: 'testscenarios', label: 'Create Test Scenarios', icon: Box },
+  { id: 'review', label: 'Review Test Cases', icon: Shield },
+  { id: 'automation', label: 'Automation', icon: Zap, hasArrow: true },
+  { id: 'github', label: 'GitHub', icon: GitBranch },
+  { id: 'githubcicd', label: 'GitHub CICD', icon: GitBranch },
+  { id: 'zephyr', label: 'Zephyr Dashboard', icon: Monitor }
+];
+
+interface Analysis {
+  summary: string;
+  recommendation: string;
+  strengths: string[];
+  gaps: string[];
+  sourceContext: string;
+}
+
+const GapAnalysisPreview: React.FC<{ analysis: Analysis }> = ({ analysis }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const plain = [
+      `Summary: ${analysis.summary}`,
+      `Recommendation: ${analysis.recommendation}`,
+      '',
+      'Strengths:',
+      ...analysis.strengths.map((s) => `  • ${s}`),
+      '',
+      'Detected Gaps:',
+      ...analysis.gaps.map((g) => `  • ${g}`),
+      '',
+      'Source Context:',
+      analysis.sourceContext,
+    ].join('\n');
+
+    const toHtmlList = (items: string[]) =>
+      `<ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`;
+
+    const html = `
+      <h3>${analysis.summary}</h3>
+      <p><em>${analysis.recommendation}</em></p>
+      <h4>Strengths</h4>${toHtmlList(analysis.strengths)}
+      <h4>Detected Gaps</h4>${toHtmlList(analysis.gaps)}
+      <h4>Source Context</h4>
+      <pre>${analysis.sourceContext}</pre>
+    `;
+
+    try {
+      (navigator.clipboard as any).write([
+        new ClipboardItem({
+          'text/plain': new Blob([plain], { type: 'text/plain' }),
+          'text/html':  new Blob([html],  { type: 'text/html' }),
+        }),
+      ]).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    } catch {
+      navigator.clipboard.writeText(plain).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
+  };
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <button className="preview-copy-btn" onClick={handleCopy} title="Copy to clipboard">
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+        {copied ? 'Copied!' : 'Copy'}
+      </button>
+      <h3 style={{ fontWeight: 700, marginBottom: '0.5rem', color: 'var(--text-main)', paddingRight: '5rem' }}>{analysis.summary}</h3>
+      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>{analysis.recommendation}</p>
+      <div style={{ marginBottom: '1rem' }}>
+        <div style={{ fontWeight: 700, marginBottom: '0.5rem', color: 'var(--text-main)' }}>Strengths</div>
+        <ul style={{ paddingLeft: '1.25rem', color: 'var(--text-main)' }}>
+          {analysis.strengths.map((item, i) => (
+            <li key={i} style={{ marginBottom: '0.4rem', fontSize: '0.88rem' }}>{item}</li>
+          ))}
+        </ul>
+      </div>
+      <div style={{ marginBottom: '1rem' }}>
+        <div style={{ fontWeight: 700, marginBottom: '0.5rem', color: 'var(--text-main)' }}>Detected Gaps</div>
+        <ul style={{ paddingLeft: '1.25rem', color: 'var(--text-main)' }}>
+          {analysis.gaps.map((item, i) => (
+            <li key={i} style={{ marginBottom: '0.4rem', fontSize: '0.88rem' }}>{item}</li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: '0.5rem', color: 'var(--text-main)' }}>Source Context</div>
+        <p style={{ fontSize: '0.82rem', whiteSpace: 'pre-wrap', color: 'var(--text-muted)' }}>{analysis.sourceContext}</p>
+      </div>
+    </div>
+  );
+};
+
+interface TestStep {
+  stepNumber: number;
+  action: string;
+  expected: string;
+  testData: string;
+}
+
+interface TestCase {
+  testCaseId: string;
+  testCaseTitle: string;
+  module: string;
+  preconditions: string;
+  testSteps: TestStep[];
+  testData: string;
+  expectedResult: string;
+  priority: string;
+  testType: string;
+  toolTicketId?: string;
+  toolId?: string;
+}
+
+interface TestData {
+  testPlanTitle: string;
+  testCases: TestCase[];
+}
+
+interface UploadConfig {
+  projectKey: string;
+  projectName: string;
+  testPlanId: string;
+  testSuiteId: string;
+  projectId: string;
+  suiteId: string;
+  sectionId: string;
+  moduleId: string;
+}
+
+const TcCopyButton: React.FC<{ data: TestData }> = ({ data }) => {
+  const [copied, setCopied] = useState(false);
+  const cases = (data?.testCases || []).filter(tc => !!tc);
+  const plainText = [
+    data?.testPlanTitle || 'Generated Test Cases',
+    '',
+    ...cases.map((tc, i) => {
+      const stepsText = Array.isArray(tc.testSteps) 
+        ? tc.testSteps.map(s => s && typeof s === 'object' ? `${s.stepNumber}. ${s.action} | Expected: ${s.expected}` : String(s)).join('\n      ')
+        : tc.testSteps;
+      return [
+        `${i + 1}. [${tc.testCaseId}] ${tc.testCaseTitle}`,
+        `   Module: ${tc.module}`,
+        `   Preconditions: ${tc.preconditions}`,
+        `   Steps:\n      ${stepsText}`,
+        `   Test Data: ${tc.testData}`,
+        `   Expected: ${tc.expectedResult}`,
+        `   Priority: ${tc.priority} | Type: ${tc.testType}`,
+      ].join('\n');
+    }),
+  ].join('\n');
+  const handleCopy = () => {
+    navigator.clipboard.writeText(plainText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button className="preview-copy-btn" onClick={handleCopy} title="Copy to clipboard" style={{ position: 'static' }}>
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+};
+
+
+const TestCasesPreview: React.FC<{ 
+  data: TestData; 
+  tool: string;
+  selectedIndices?: number[];
+  onToggleSelect?: (index: number) => void;
+  onSelectAll?: (all: boolean) => void;
+  onEdit?: (tc: TestCase, index: number) => void;
+  onDelete?: (index: number) => void;
+}> = ({ data, tool, selectedIndices = [], onToggleSelect, onSelectAll, onEdit, onDelete }) => {
+  const cases = (data?.testCases || []).filter(tc => !!tc);
+  const allSelected = cases.length > 0 && selectedIndices.length === cases.length;
+
+  return (
+    <div className="test-cases-preview-wrapper" style={{ width: '100%' }}>
+      {cases.length === 0 ? (
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No test cases returned.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem', padding: '0 0.5rem' }}>
+             {onSelectAll && (
+               <input 
+                 type="checkbox" 
+                 checked={allSelected} 
+                 onChange={(e) => onSelectAll(e.target.checked)} 
+                 style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+               />
+             )}
+             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Select All ({cases.length} cases)</span>
+          </div>
+
+          {cases.map((tc, i) => (
+            <div key={i} style={{ 
+              border: '1px solid var(--border-color)', 
+              borderRadius: '6px', 
+              padding: '0.85rem', 
+              background: 'var(--bg-main)',
+              position: 'relative' 
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                   {onToggleSelect && (
+                     <input 
+                       type="checkbox" 
+                       checked={selectedIndices.includes(i)} 
+                       onChange={() => onToggleSelect(i)} 
+                       style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                     />
+                   )}
+                   <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {onEdit && (
+                      <button 
+                        onClick={() => onEdit(tc, i)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '2px' }}
+                        title="Edit Test Case"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button 
+                        onClick={() => onDelete(i)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px' }}
+                        title="Delete Test Case"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                   </div>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)' }}>
+                     [{tc.testCaseId}] {tc.testCaseTitle}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <span className={`tc-badge tc-badge--${(tc.priority || '').toLowerCase()}`}>{tc.priority}</span>
+                  <span className="tc-badge tc-badge--type">{tc.testType}</span>
+                </div>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.3rem 1rem', paddingLeft: '2.5rem' }}>
+                <span><strong>Module:</strong> {tc.module}</span>
+                <span><strong>{TOOL_COLUMN_LABEL[tool] || `${tool} ID`}:</strong> {tc.toolTicketId || tc.toolId}</span>
+                <span style={{ gridColumn: '1/-1' }}><strong>Preconditions:</strong> {tc.preconditions}</span>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <strong>Steps:</strong>
+                  {Array.isArray(tc.testSteps) ? (
+                    <div style={{ marginLeft: '0.5rem', marginTop: '0.25rem' }}>
+                      {tc.testSteps.map((s, idx) => (
+                        s && typeof s === 'object' ? (
+                          <div key={idx} style={{ marginBottom: '0.15rem' }}>
+                            <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{s.stepNumber || idx + 1}.</span> {s.action || 'No Action'}
+                            {s.testData && s.testData !== 'N/A' && (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}> (Data: {s.testData})</span>
+                            )}
+                          </div>
+                        ) : <div key={idx}>{String(s)}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span> {String(tc.testSteps || '')}</span>
+                  )}
+                </div>
+                <span style={{ gridColumn: '1/-1' }}><strong>Test Data:</strong> {tc.testData}</span>
+                <span style={{ gridColumn: '1/-1' }}><strong>Expected Result:</strong> {tc.expectedResult}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const EditTestCaseModal: React.FC<{
+  tc: TestCase;
+  onSave: (updatedTc: TestCase) => void;
+  onClose: () => void;
+}> = ({ tc, onSave, onClose }) => {
+  const [edited, setEdited] = useState<TestCase>({ ...tc });
+  const [error, setError] = useState<string | null>(null);
+  const [collapsedSteps, setCollapsedSteps] = useState<Set<number>>(() => {
+    const s = new Set<number>();
+    tc.testSteps.forEach((_, i) => s.add(i));
+    return s;
+  });
+
+  const toggleStep = (index: number) => {
+    let isExpanding = false;
+    setCollapsedSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+        isExpanding = true;
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+
+    if (isExpanding) {
+      setTimeout(() => {
+        const el = document.getElementById(`step-card-${index}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    }
+  };
+
+  const handleFieldChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setEdited({ ...edited, [e.target.name]: e.target.value });
+  };
+
+  const handleStepChange = (index: number, field: keyof TestStep, value: string | number) => {
+    const newSteps = [...edited.testSteps];
+    newSteps[index] = { ...newSteps[index], [field]: value };
+    setEdited({ ...edited, testSteps: newSteps });
+    if (error && field === 'action' && value) setError(null);
+  };
+
+  const insertStepAfter = (index: number) => {
+    const newSteps = [...edited.testSteps];
+    const newStep: TestStep = {
+      stepNumber: 0,
+      action: '',
+      expected: '',
+      testData: 'N/A'
+    };
+    newSteps.splice(index + 1, 0, newStep);
+    const renumbered = newSteps.map((s, i) => ({ ...s, stepNumber: i + 1 }));
+    setEdited({ ...edited, testSteps: renumbered });
+    setCollapsedSteps(prev => {
+      const next = new Set(prev);
+      next.delete(index + 1);
+      return next;
+    });
+  };
+
+  const insertStepBefore = (index: number) => {
+    const newSteps = [...edited.testSteps];
+    const newStep: TestStep = {
+      stepNumber: 0,
+      action: '',
+      expected: '',
+      testData: 'N/A'
+    };
+    newSteps.splice(index, 0, newStep);
+    const renumbered = newSteps.map((s, i) => ({ ...s, stepNumber: i + 1 }));
+    setEdited({ ...edited, testSteps: renumbered });
+    setCollapsedSteps(prev => {
+      const next = new Set(prev);
+      next.delete(index);
+      return next;
+    });
+  };
+
+  const removeStep = (index: number) => {
+    const newSteps = edited.testSteps.filter((_, i) => i !== index)
+      .map((s, i) => ({ ...s, stepNumber: i + 1 }));
+    setEdited({ ...edited, testSteps: newSteps });
+  };
+
+  const validateAndSave = () => {
+    const emptySteps = edited.testSteps.filter(s => !s.action.trim());
+    if (emptySteps.length > 0) {
+      setError(`Cannot save with ${emptySteps.length} empty step(s). Please provide step actions.`);
+      return;
+    }
+    onSave(edited);
+  };
+
+  const handleCloseAttempt = () => {
+    const isDirty = JSON.stringify(edited) !== JSON.stringify(tc);
+    if (isDirty) {
+      if (window.confirm("You have unsaved changes. Do you want to discard them?")) {
+        onClose();
+      }
+    } else {
+      onClose();
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={handleCloseAttempt}>
+      <div className="modal-content tc-edit-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header" style={{ padding: '0.6rem 1.25rem' }}>
+          <h2 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-main)', fontWeight: 800 }}>Edit {tc.testCaseId}</h2>
+          
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase' }}>Priority</span>
+              <select 
+                name="priority" 
+                value={edited.priority} 
+                onChange={handleFieldChange} 
+                style={{ 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: '4px',
+                  height: '22px', 
+                  fontSize: '0.6rem', 
+                  fontWeight: 800, 
+                  padding: '0 0.3rem',
+                  textTransform: 'uppercase',
+                  background: 'var(--bg-main)',
+                  color: edited.priority === 'High' ? '#e11d48' : edited.priority === 'Medium' ? '#d97706' : '#059669'
+                }}
+              >
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase' }}>Type</span>
+              <select 
+                name="testType" 
+                value={edited.testType} 
+                onChange={handleFieldChange} 
+                style={{ 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: '4px',
+                  height: '22px', 
+                  fontSize: '0.6rem', 
+                  fontWeight: 800, 
+                  padding: '0 0.3rem',
+                  textTransform: 'uppercase',
+                  background: 'var(--bg-main)',
+                  color: 'var(--text-main)'
+                }}
+              >
+                <option value="Functional">Functional</option>
+                <option value="Non-Functional">Non-Functional</option>
+                <option value="Regression">Regression</option>
+                <option value="Smoke">Smoke</option>
+                <option value="Sanity">Sanity</option>
+                <option value="API">API</option>
+              </select>
+            </div>
+          </div>
+
+          <button onClick={handleCloseAttempt} className="modal-close-btn" style={{ marginLeft: 'auto' }}>
+            <X size={16} />
+          </button>
+        </div>
+        
+        <div className="modal-subheader" style={{ padding: '0.5rem 1.25rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Title</label>
+              <input 
+                name="testCaseTitle" 
+                value={edited.testCaseTitle} 
+                onChange={handleFieldChange} 
+                className="form-control"
+                style={{ height: '30px', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Module</label>
+              <input 
+                name="module" 
+                value={edited.module} 
+                onChange={handleFieldChange} 
+                className="form-control"
+                style={{ height: '30px', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}
+              />
+            </div>
+          </div>
+        </div>
+        
+        <div className="modal-body" style={{ maxHeight: '78vh', paddingTop: '0.75rem' }}>
+          {error && (
+            <div className="validation-error-banner" style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem' }}>
+              <AlertTriangle size={14} />
+              <span style={{ fontSize: '0.75rem' }}>{error}</span>
+            </div>
+          )}
+
+          <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+            <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.25rem' }}>Preconditions</label>
+            <textarea 
+              name="preconditions" 
+              value={edited.preconditions} 
+              onChange={handleFieldChange} 
+              className="form-control" 
+              rows={2} 
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.65rem' }}
+            />
+          </div>
+
+          <div className="form-group">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <label style={{ marginBottom: 0, fontSize: '0.62rem', color: 'var(--text-main)' }}>Test Steps</label>
+              <button onClick={() => insertStepBefore(0)} className="btn btn-primary compact" style={{ height: '32px' }}>
+                <Plus size={14} /> Add First Step
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+              {edited.testSteps.map((step, idx) => (
+                <React.Fragment key={idx}>
+                  <div className={`tc-step-card ${collapsedSteps.has(idx) ? 'tc-step-card--collapsed' : ''}`} id={`step-card-${idx}`}>
+                    <div className="tc-step-header" onClick={() => toggleStep(idx)}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                        <div style={{ width: '18px', height: '18px', background: 'var(--primary)', color: 'white', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 800 }}>
+                          {step.stepNumber}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          <span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {step.action || 'New Step'}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: '0.15rem', background: 'var(--bg-main)', padding: '2px', borderRadius: '4px' }}>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); insertStepBefore(idx); }} 
+                            className="btn-glossy-green"
+                            title="Add Step Above"
+                          >
+                            <ArrowUpFromLine size={12} />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); insertStepAfter(idx); }} 
+                            className="btn-glossy-green"
+                            title="Add Step Below"
+                          >
+                            <ArrowDownFromLine size={12} />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); removeStep(idx); }} 
+                            className="btn-glossy-red"
+                            title="Remove Step"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <div style={{ width: '1px', height: '12px', background: 'var(--border-color)' }}></div>
+                        <button onClick={(e) => { e.stopPropagation(); toggleStep(idx); }} className="tc-step-toggle-btn" title={collapsedSteps.has(idx) ? "Expand" : "Collapse"}>
+                          {collapsedSteps.has(idx) ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {!collapsedSteps.has(idx) && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', animation: 'fadeIn 0.2s ease-out' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                           <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label style={{ fontSize: '0.6rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Action</label>
+                            <textarea 
+                              placeholder="Step action..." 
+                              value={step.action} 
+                              onChange={(e) => handleStepChange(idx, 'action', e.target.value)} 
+                              className="form-control"
+                              rows={2}
+                              style={{ fontSize: '0.78rem', padding: '0.35rem 0.6rem' }}
+                            />
+                          </div>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label style={{ fontSize: '0.6rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Expected Result</label>
+                            <textarea 
+                              placeholder="Expected result..." 
+                              value={step.expected} 
+                              onChange={(e) => handleStepChange(idx, 'expected', e.target.value)} 
+                              className="form-control" 
+                              rows={2}
+                              style={{ fontSize: '0.78rem', padding: '0.35rem 0.6rem' }}
+                            />
+                          </div>
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label style={{ fontSize: '0.6rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Step Test Data</label>
+                          <input 
+                            placeholder="Step specific data..." 
+                            value={step.testData} 
+                            onChange={(e) => handleStepChange(idx, 'testData', e.target.value)} 
+                            className="form-control"
+                            style={{ height: '28px', fontSize: '0.78rem' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.75rem' }}>
+            <div className="form-group">
+              <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.3rem' }}>Overall Test Data</label>
+              <textarea 
+                name="testData" 
+                value={edited.testData} 
+                onChange={handleFieldChange} 
+                className="form-control" 
+                rows={4} 
+                style={{ fontSize: '0.8rem', padding: '0.4rem 0.65rem' }}
+              />
+            </div>
+            <div className="form-group">
+              <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.3rem' }}>Overall Expected Result</label>
+              <textarea 
+                name="expectedResult" 
+                value={edited.expectedResult} 
+                onChange={handleFieldChange} 
+                className="form-control" 
+                rows={4} 
+                style={{ fontSize: '0.8rem', padding: '0.4rem 0.65rem' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer" style={{ padding: '0.65rem 1.25rem' }}>
+          <button className="btn btn-outline" onClick={handleCloseAttempt} style={{ height: '30px', padding: '0 0.85rem', fontSize: '0.78rem' }}>Cancel</button>
+          <button className="btn btn-primary" onClick={validateAndSave} style={{ height: '30px', padding: '0 1.15rem', fontSize: '0.78rem' }}>Save and Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const TestCasesResultsSection: React.FC<{
+  data: TestData;
+  tool: string;
+  selectedIndices: number[];
+  onToggleSelect: (index: number) => void;
+  onSelectAll: (all: boolean) => void;
+  onEdit: (tc: TestCase, index: number) => void;
+  onDelete: (index: number) => void;
+  onDeleteSelected: () => void;
+  title?: string;
+}> = ({ data, tool, selectedIndices, onToggleSelect, onSelectAll, onEdit, onDelete, onDeleteSelected, title = "Generated Test Cases" }) => {
+  const [searchText, setSearchText] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('All');
+  const [typeFilter, setTypeFilter] = useState('All');
+
+  const cases = data.testCases || [];
+
+  const availableTypes = useMemo(() => {
+    const types = new Set<string>();
+    cases.forEach(tc => { if (tc?.testType) types.add(tc.testType); });
+    return ['All', ...Array.from(types).filter(Boolean)];
+  }, [cases]);
+
+  const filteredData = useMemo(() => {
+    const filteredItems = cases.map((tc, idx) => ({ tc, originalIndex: idx }))
+      .filter(({ tc }) => {
+        if (!tc) return false;
+        const lowerSearch = searchText.toLowerCase();
+        // Defensive checks for missing fields
+        const title = (tc.testCaseTitle || "").toLowerCase();
+        const preconditions = (tc.preconditions || "").toLowerCase();
+        const expected = (tc.expectedResult || "").toLowerCase();
+        const steps = Array.isArray(tc.testSteps) ? tc.testSteps : [];
+        const stepsMatch = steps.some(s => (s?.action || "").toLowerCase().includes(lowerSearch));
+
+        const matchesSearch = !searchText || 
+          title.includes(lowerSearch) ||
+          preconditions.includes(lowerSearch) ||
+          expected.includes(lowerSearch) ||
+          stepsMatch;
+        
+        const matchesPriority = priorityFilter === 'All' || tc.priority === priorityFilter;
+        const matchesType = typeFilter === 'All' || tc.testType === typeFilter;
+
+        return matchesSearch && matchesPriority && matchesType;
+      });
+
+    return {
+      testPlanTitle: data.testPlanTitle,
+      testCases: filteredItems.map(f => f.tc),
+      originalIndices: filteredItems.map(f => f.originalIndex)
+    };
+  }, [cases, searchText, priorityFilter, typeFilter, data.testPlanTitle]);
+
+  return (
+    <div className="test-results-container">
+      <div className="test-results-header">
+        <h2 className="test-results-title">{title}</h2>
+        
+        <div className="test-results-controls">
+          <div className="filter-group">
+            <Search size={14} className="filter-icon" />
+            <input 
+              type="text" 
+              placeholder="Search content..." 
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="filter-input"
+              style={{ width: '180px' }}
+            />
+          </div>
+          
+          <select 
+            value={priorityFilter} 
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="filter-select"
+          >
+            <option value="All">All Priorities</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+
+          <select 
+            value={typeFilter} 
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="filter-select"
+          >
+            {availableTypes.map(t => <option key={t} value={t}>{t === 'All' ? 'All Types' : t}</option>)}
+          </select>
+
+          <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 0.5rem' }}></div>
+
+          {selectedIndices.length > 0 && (
+            <button className="btn btn-outline red compact" onClick={onDeleteSelected}>
+              <Trash2 size={14} /> Delete Selected ({selectedIndices.length})
+            </button>
+          )}
+          <TcCopyButton data={{ ...data, testCases: filteredData.testCases }} />
+        </div>
+      </div>
+
+      <div className="test-results-card">
+        <TestCasesPreview 
+          data={filteredData} 
+          tool={tool} 
+          selectedIndices={(filteredData.originalIndices || [])
+            .map((origIdx, filtIdx) => selectedIndices.includes(origIdx) ? filtIdx : -1)
+            .filter(idx => idx !== -1)}
+          onToggleSelect={(idx) => {
+            const origIdx = filteredData.originalIndices?.[idx];
+            if (origIdx !== undefined) onToggleSelect(origIdx);
+          }}
+          onSelectAll={onSelectAll}
+          onEdit={(tc, idx) => {
+            const origIdx = filteredData.originalIndices?.[idx];
+            if (origIdx !== undefined) onEdit(tc, origIdx);
+          }}
+          onDelete={(idx) => {
+            const origIdx = filteredData.originalIndices?.[idx];
+            if (origIdx !== undefined) onDelete(origIdx);
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
+const IssueDetailsPreview: React.FC<{ details: IssueDetails; issueId: string; tool: string }> = ({ details, issueId, tool }) => {
+  const fieldsOrder = ['Issue ID', 'Title', 'Issue Type', 'Priority', 'State', 'Status', 'Description', 'Labels', 'Components', 'Type', 'Summary', 'Acceptance Criteria', 'Steps', 'Preconditions', 'Expected Result', 'Test Type'];
+
+  const orderedDetails = fieldsOrder
+    .filter(key => key in details)
+    .reduce((acc, key) => ({ ...acc, [key]: details[key] }), {} as IssueDetails);
+
+  const remainingDetails = Object.keys(details)
+    .filter(key => !fieldsOrder.includes(key))
+    .reduce((acc, key) => ({ ...acc, [key]: details[key] }), {} as IssueDetails);
+
+  const allDetails = { ...orderedDetails, ...remainingDetails };
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <h3 style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem', margin: '0 0 1rem 0' }}>
+        {issueId}
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+        {Object.entries(allDetails).map(([key, value]) => (
+          <div key={key}>
+            <div style={{ fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-main)', fontSize: '0.8rem' }}>
+              {key}
+            </div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+interface FormData {
+  llmProvider: string;
+  llmEndpoint: string;
+  llmModel: string;
+  llmApiKey: string;
+  selectedTool: string;
+  baseUrl: string;
+  username: string;
+  token: string;
+  issueId: string;
+}
+
+interface TcFormData {
+  manualRequirements: string;
+  customInstructions: string;
+  sharedPrerequisites: string;
+  businessRules: string;
+  widgetsSections: string;
+  additionalContext: string;
+}
+
+interface IssueDetails {
+  [key: string]: string;
+}
+
+const App: React.FC = () => {
+  const [theme, setTheme] = useState('light');
+  const [currentView, setCurrentView] = useState('connection');
+  const [aiStatus, setAiStatus] = useState('Not Connected!');
+  const [almStatus, setAlmStatus] = useState('Not Connected!');
+  const [aiTesting, setAiTesting] = useState(false);
+  const [almTesting, setAlmTesting] = useState(false);
+  const [aiStepIndex, setAiStepIndex] = useState(0);
+  const [almStepIndex, setAlmStepIndex] = useState(0);
+  const [issueDetails, setIssueDetails] = useState<IssueDetails | null>(null);
+  const [issueFetching, setIssueFetching] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'save' | 'error' } | null>(null);
+
+  // Auto-hide toast
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+  
+  // ── Test Plan state ──────────────────────────────────────────────────────
+  const [tpStatus, setTpStatus] = useState('');
+  const [tpDocPath, setTpDocPath] = useState('');
+  const [tpGapAnalysis, setTpGapAnalysis] = useState<Analysis | null>(null);
+  const [tpGapRunning, setTpGapRunning] = useState(false);
+  const [tpGapStepIndex, setTpGapStepIndex] = useState(0);
+  const [tpGenerating, setTpGenerating] = useState(false);
+  const [tpGenerateStepIndex, setTpGenerateStepIndex] = useState(0);
+
+  // ── Test Cases state ─────────────────────────────────────────────────────
+  const [tcFormData, setTcFormData] = useState<TcFormData>({
+    manualRequirements: '',
+    customInstructions: '',
+    sharedPrerequisites: '',
+    businessRules: '',
+    widgetsSections: '',
+    additionalContext: '',
+  });
+  const [showTCOptional, setShowTCOptional] = useState(false);
+  const [tcStatus, setTcStatus] = useState('');
+  const [tcDocPath, setTcDocPath] = useState('');
+  const [tcResults, setTcResults] = useState<TestData | null>(null);
+  const [selectedTcIndices, setSelectedTcIndices] = useState<number[]>([]);
+  const [editingTcIndex, setEditingTcIndex] = useState<number | null>(null);
+  const [editingTc, setEditingTc] = useState<TestCase | null>(null);
+  const [tcGapAnalysis, setTcGapAnalysis] = useState<Analysis | null>(null);
+  const [tcGapRunning, setTcGapRunning] = useState(false);
+  const [tcGapStepIndex, setTcGapStepIndex] = useState(0);
+  const [tcGenerating, setTcGenerating] = useState(false);
+  const [tcGenerateStepIndex, setTcGenerateStepIndex] = useState(0);
+
+  // ── Test Scenarios state ──────────────────────────────────────────────────
+  const [tpScenarios, setTpScenarios] = useState<TestData | null>(null);
+  const [selectedTsIndices, setSelectedTsIndices] = useState<number[]>([]);
+
+  // ── Upload to ALM state ────────────────────────────────────────────────────
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadConfig, setUploadConfig] = useState<UploadConfig>({
+    projectKey: '',
+    projectName: '',
+    testPlanId: '',
+    testSuiteId: '',
+    projectId: '',
+    suiteId: '',
+    sectionId: '',
+    moduleId: ''
+  });
+  const [uploadResults, setUploadResults] = useState<any[]>([]);
+  const [uploadRunning, setUploadRunning] = useState(false);
+
+  const [formData, setFormData] = useState<FormData>({
+    llmProvider: 'GROQ',
+    llmEndpoint: 'http://127.0.0.1:11434',
+    llmModel: '',
+    llmApiKey: '',
+    selectedTool: 'Jira',
+    baseUrl: '',
+    username: '',
+    token: '',
+    issueId: ''
+  });
+
+  const getPendingStatus = (type: 'AI' | 'ALM', provider: string) =>
+    type === 'AI' && provider === 'Ollama'
+      ? 'Checking provider endpoint...'
+      : 'Pinging API server...';
+
+  const isNeutralStatus = (s: string) =>
+    ['Pinging API server...', 'Checking provider endpoint...', 'Generating test plan...',
+     'Analyzing requirement gaps...', 'Generating test cases...'].includes(s) ||
+    getGapAnalysisSteps(formData.llmProvider, formData.selectedTool).includes(s);
+
+  const getStatusClass = (status: string) => {
+    if (!status) return '';
+    if (['Connection Successful!', 'Gap analysis completed.'].includes(status) ||
+        status.startsWith('Test Plan generated:') || status.startsWith('Test cases generated:'))
+      return 'status-indicator success';
+    if (status.startsWith('Error:')) return 'status-indicator error';
+    if (isNeutralStatus(status)) return 'status-indicator neutral';
+    return 'status-indicator error';
+  };
+
+  const renderStatusIcon = (status: string) => {
+    if (status === 'Connection Successful!') return <CheckCircle2 size={18} />;
+    if (status === 'Not Connected!') return <WifiOff size={18} />;
+    if (['Gap analysis completed.'].includes(status) ||
+        status.startsWith('Test Plan generated:') || status.startsWith('Test cases generated:'))
+      return <CheckCircle2 size={18} />;
+    if (status.startsWith('Error:')) return <AlertTriangle size={18} />;
+    return <Zap size={18} />;
+  };
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // Test Plan gap analysis step ticker
+  useEffect(() => {
+    if (!tpGapRunning) return undefined;
+    const steps = getGapAnalysisSteps(formData.llmProvider, formData.selectedTool);
+    setTpGapStepIndex(0);
+    setTpStatus(`Step 1/${steps.length}: ${steps[0]}`);
+    const id = window.setInterval(() => {
+      setTpGapStepIndex(prev => {
+        const next = Math.min(prev + 1, steps.length - 1);
+        setTpStatus(`Step ${next + 1}/${steps.length}: ${steps[next]}`);
+        return next;
+      });
+    }, 1800);
+    return () => window.clearInterval(id);
+  }, [tpGapRunning, formData.llmProvider, formData.selectedTool]);
+
+  // Test Cases gap analysis step ticker
+  useEffect(() => {
+    if (!tcGapRunning) return undefined;
+    const steps = getGapAnalysisSteps(formData.llmProvider, formData.selectedTool);
+    setTcGapStepIndex(0);
+    setTcStatus(`Step 1/${steps.length}: ${steps[0]}`);
+    const id = window.setInterval(() => {
+      setTcGapStepIndex(prev => {
+        const next = Math.min(prev + 1, steps.length - 1);
+        setTcStatus(`Step ${next + 1}/${steps.length}: ${steps[next]}`);
+        return next;
+      });
+    }, 1800);
+    return () => window.clearInterval(id);
+  }, [tcGapRunning, formData.llmProvider, formData.selectedTool]);
+
+  // Test Plan generation step ticker
+  useEffect(() => {
+    if (!tpGenerating) return undefined;
+    const steps = currentView === 'testscenarios' ? getTestScenariosSteps() : getTestPlanSteps();
+    setTpGenerateStepIndex(0);
+    setTpStatus(`Step 1/${steps.length}: ${steps[0]}`);
+    const id = window.setInterval(() => {
+      setTpGenerateStepIndex(prev => {
+        const next = Math.min(prev + 1, steps.length - 1);
+        setTpStatus(`Step ${next + 1}/${steps.length}: ${steps[next]}`);
+        return next;
+      });
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [tpGenerating, currentView]);
+
+  // Test Cases generation step ticker
+  useEffect(() => {
+    if (!tcGenerating) return undefined;
+    const steps = getTestCaseSteps();
+    setTcGenerateStepIndex(0);
+    setTcStatus(`Step 1/${steps.length}: ${steps[0]}`);
+    const id = window.setInterval(() => {
+      setTcGenerateStepIndex(prev => {
+        const next = Math.min(prev + 1, steps.length - 1);
+        setTcStatus(`Step ${next + 1}/${steps.length}: ${steps[next]}`);
+        return next;
+      });
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [tcGenerating]);
+
+  // AI connection test step ticker
+  useEffect(() => {
+    if (!aiTesting) return undefined;
+    const steps = getTestConnectionSteps('AI');
+    setAiStepIndex(0);
+    setAiStatus(`Step 1/${steps.length}: ${steps[0]}`);
+    const id = window.setInterval(() => {
+      setAiStepIndex(prev => {
+        const next = Math.min(prev + 1, steps.length - 1);
+        setAiStatus(`Step ${next + 1}/${steps.length}: ${steps[next]}`);
+        return next;
+      });
+    }, 1200);
+    return () => window.clearInterval(id);
+  }, [aiTesting]);
+
+  // ALM connection test step ticker
+  useEffect(() => {
+    if (!almTesting) return undefined;
+    const steps = getTestConnectionSteps('ALM');
+    setAlmStepIndex(0);
+    setAlmStatus(`Step 1/${steps.length}: ${steps[0]}`);
+    const id = window.setInterval(() => {
+      setAlmStepIndex(prev => {
+        const next = Math.min(prev + 1, steps.length - 1);
+        setAlmStatus(`Step ${next + 1}/${steps.length}: ${steps[next]}`);
+        return next;
+      });
+    }, 1200);
+    return () => window.clearInterval(id);
+  }, [almTesting]);
+
+  // Load persistence
+  useEffect(() => {
+    const saved = localStorage.getItem('agent_config');
+    if (saved) setFormData(JSON.parse(saved));
+  }, []);
+
+  const AI_FIELDS  = new Set(['llmProvider', 'llmEndpoint', 'llmModel', 'llmApiKey']);
+  const ALM_FIELDS = new Set(['selectedTool', 'baseUrl', 'username', 'token']);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    if (AI_FIELDS.has(name))  setAiStatus('Not Connected!');
+    if (ALM_FIELDS.has(name)) setAlmStatus('Not Connected!');
+    if (name === 'issueId') setIssueDetails(null);
+  };
+
+  const handleSave = (type: 'AI' | 'ALM') => {
+    localStorage.setItem('agent_config', JSON.stringify(formData));
+    setToast({ message: `${type} Configuration Saved!`, type: 'save' });
+  };
+
+  const handleFetchIssue = async () => {
+    setIssueFetching(true);
+    setIssueDetails(null);
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/fetch-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.details) {
+        setIssueDetails(d.details);
+        setToast({ message: `Successfully fetched details for ${formData.issueId}`, type: 'success' });
+      } else {
+        const err = d.detail || 'Could not fetch issue details.';
+        setTpStatus(`Error: ${err}`);
+        setToast({ message: `Fetch Error: ${err}`, type: 'error' });
+      }
+    } catch {
+      setTpStatus('Error: Failed to fetch issue details.');
+      setToast({ message: 'Network Error: Failed to fetch issue details.', type: 'error' });
+    } finally {
+      setIssueFetching(false);
+    }
+  };
+
+  const readErrorDetail = async (res: Response) => {
+    const contentType = res.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+      const data = await res.json().catch(() => ({}));
+      return data.detail || data.message || `Request failed with status ${res.status}.`;
+    }
+
+    const text = await res.text().catch(() => '');
+    if (!text) return `Request failed with status ${res.status}.`;
+
+    return text.length > 180 ? `${text.slice(0, 180).trim()}...` : text;
+  };
+
+  const handleTestBackend = async (type: 'AI' | 'ALM') => {
+    const setStatus = type === 'AI' ? setAiStatus : setAlmStatus;
+    const setTesting = type === 'AI' ? setAiTesting : setAlmTesting;
+    setTesting(true);
+
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/verify`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ type, ...formData })
+      });
+      if (res.ok) {
+        setStatus('Connection Successful!');
+        setToast({ message: `${type} Connection Successful!`, type: 'success' });
+      } else {
+        const err = await readErrorDetail(res);
+        setStatus(`Error: ${err}`);
+        setToast({ message: `Connection Failed: ${err}`, type: 'error' });
+      }
+    } catch(err) {
+      setStatus('Failed to reach verification service.');
+      setToast({ message: 'Network Error: Backend unreachable.', type: 'error' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const TopHeader: React.FC = () => (
+    <header className="top-header">
+      <div className="header-left">
+        <div className="header-title">AI TEST COMMAND CENTER</div>
+        <div className="badge-ai">Powered by OTSI</div>
+      </div>
+      <div className="header-right">
+        <div className="user-profile">
+          <div className="user-text" style={{textAlign: 'right'}}>
+            <span className="user-name">OTSI - Smart QA</span>
+            <span className="user-role">AI-DRIVEN</span>
+          </div>
+          <div className="avatar">OS</div>
+        </div>
+      </div>
+    </header>
+  );
+
+  const renderConnectionView = () => (
+    <>
+      <h1 className="page-title">Connection Settings</h1>
+      <p className="page-subtitle">Configure your ALM integration and AI engine endpoints to establish the data linkage.</p>
+      
+      <div className="card-grid">
+        {/* AI Engine Card */}
+        <div className="card">
+          <div className="card-header">
+            <div className="icon-circle"><Network size={20} /></div>
+            <div className="card-title">AI Engine Settings</div>
+            <div className={aiStatus === 'Connection Successful!' ? 'badge-connected' : 'badge-config'}>
+              {aiStatus === 'Connection Successful!' ? 'CONNECTED' : 'CONFIG REQUIRED'}
+            </div>
+          </div>
+          
+          <div className="form-group">
+            <label>Provider</label>
+            <select name="llmProvider" value={formData.llmProvider} onChange={handleChange} className="form-control">
+              <option value="GROQ">GROQ (Cloud)</option>
+              <option value="Claude">Claude (Anthropic)</option>
+              <option value="OpenRouter">OpenRouter (All Models)</option>
+              <option value="Grok">Grok (xAI)</option>
+              <option value="Anthropic">Anthropic (Direct)</option>
+              <option value="Ollama">Ollama (Local)</option>
+            </select>
+          </div>
+
+          {formData.llmProvider === 'Ollama' ? (
+            <div className="form-group">
+              <label>Endpoint URL</label>
+              <input type="url" name="llmEndpoint" value={formData.llmEndpoint} onChange={handleChange} className="form-control" />
+            </div>
+          ) : (
+            <div className="form-group">
+              <label>API Key</label>
+              <input type="password" name="llmApiKey" value={formData.llmApiKey} onChange={handleChange} className="form-control" />
+            </div>
+          )}
+
+          <div className="form-group">
+            <label>Model Name</label>
+            <input
+              type="text"
+              name="llmModel"
+              value={formData.llmModel}
+              onChange={handleChange}
+              className="form-control"
+              placeholder={formData.llmProvider === 'Ollama' ? 'e.g. llama3.2:latest' : formData.llmProvider === 'OpenRouter' ? 'e.g. google/gemini-pro-1.5' : 'e.g. claude-3-5-sonnet-latest'}
+            />
+          </div>
+
+          {aiStatus && aiStatus !== 'Connection Successful!' && (
+            <div className={getStatusClass(aiStatus)} style={{marginBottom: '1rem', marginTop: 0}}>
+              {renderStatusIcon(aiStatus)} {aiStatus}
+            </div>
+          )}
+          <div className="actions-row">
+            <button className="btn btn-primary" disabled={aiTesting} onClick={() => handleTestBackend('AI')}>{aiTesting ? <><RefreshCw size={16} className="spin" /> Testing...</> : <>Test Connection</>}</button>
+            <button className="btn btn-primary" onClick={() => handleSave('AI')}>Save Connection</button>
+          </div>
+        </div>
+
+        {/* ALM Card */}
+        <div className="card">
+          <div className="card-header">
+            <div className="icon-circle"><Database size={20} /></div>
+            <div className="card-title">Test Management Setup</div>
+            <div className={almStatus === 'Connection Successful!' ? 'badge-connected' : 'badge-config'}>
+              {almStatus === 'Connection Successful!' ? 'CONNECTED' : 'CONFIG REQUIRED'}
+            </div>
+          </div>
+          
+          <div className="form-group">
+            <label>Test Management Tool</label>
+            <select name="selectedTool" value={formData.selectedTool} onChange={handleChange} className="form-control">
+              <option value="Jira">Jira Cloud</option>
+              <option value="ADO">Azure DevOps (ADO)</option>
+              <option value="X-Ray">X-Ray (Cloud)</option>
+              <option value="TestRail">TestRail</option>
+              <option value="QTest">QTest</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Workspace URL</label>
+            <input type="url" name="baseUrl" value={formData.baseUrl} onChange={handleChange} className="form-control" />
+          </div>
+
+          <div className="form-group">
+            <label>Auth Details (Email / Token)</label>
+            <div style={{display:'flex', gap:'1rem'}}>
+               <input type="text" name="username" value={formData.username} onChange={handleChange} className="form-control" placeholder="Email" />
+               <input type="password" name="token" value={formData.token} onChange={handleChange} className="form-control" placeholder="Token" />
+            </div>
+          </div>
+
+          {almStatus && almStatus !== 'Connection Successful!' && (
+            <div className={getStatusClass(almStatus)} style={{marginBottom: '1rem', marginTop: 0}}>
+              {renderStatusIcon(almStatus)} {almStatus}
+            </div>
+          )}
+          <div className="actions-row">
+            <button className="btn btn-primary" disabled={almTesting} onClick={() => handleTestBackend('ALM')}>{almTesting ? <><RefreshCw size={16} className="spin" /> Testing...</> : <>Test Connection</>}</button>
+            <button className="btn btn-primary" onClick={() => handleSave('ALM')}>Save Connection</button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const handleSaveEditedTc = async (updatedTc: TestCase) => {
+    if (!tcResults || editingTcIndex === null) return;
+    const newCases = [...tcResults.testCases];
+    newCases[editingTcIndex] = updatedTc;
+    const newResults = { ...tcResults, testCases: newCases };
+    setTcResults(newResults);
+    setEditingTcIndex(null);
+    setEditingTc(null);
+
+    // Sync with backend
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/update-test-cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          test_cases: newCases,
+          issueId: formData.issueId,
+          selectedTool: formData.selectedTool
+        })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.document_path) {
+        setTcDocPath(d.document_path);
+        setToast({ message: 'Test case updated and synced.', type: 'success' });
+      }
+    } catch {
+      setToast({ message: 'Saved locally, but sync failed.', type: 'error' });
+    }
+  };
+
+  const handleDeleteTc = async (index: number) => {
+    if (!tcResults) return;
+    const newCases = tcResults.testCases.filter((_, i) => i !== index);
+    const newResults = { ...tcResults, testCases: newCases };
+    setTcResults(newResults);
+    setSelectedTcIndices(prev => prev.filter(i => i !== index).map(i => i > index ? i - 1 : i));
+    
+    // Sync with backend
+    try {
+      await fetch(`${BACKEND_API_BASE}/update-test-cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          test_cases: newCases,
+          issueId: formData.issueId,
+          selectedTool: formData.selectedTool
+        })
+      });
+      setToast({ message: 'Test case deleted.', type: 'success' });
+    } catch {
+      setToast({ message: 'Deleted locally, sync failed.', type: 'error' });
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!tcResults || selectedTcIndices.length === 0) return;
+    const newCases = tcResults.testCases.filter((_, i) => !selectedTcIndices.includes(i));
+    const newResults = { ...tcResults, testCases: newCases };
+    setTcResults(newResults);
+    setSelectedTcIndices([]);
+    
+    // Sync with backend
+    try {
+      await fetch(`${BACKEND_API_BASE}/update-test-cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          test_cases: newCases,
+          issueId: formData.issueId,
+          selectedTool: formData.selectedTool
+        })
+      });
+      setToast({ message: 'Selected cases deleted.', type: 'success' });
+    } catch {
+      setToast({ message: 'Deleted locally, sync failed.', type: 'error' });
+    }
+  };
+
+  const handleUploadToALM = async (config: UploadConfig) => {
+    setUploadRunning(true);
+    setUploadResults([]);
+
+    const toUpload = tcResults?.testCases || [];
+    const payload = {
+      ...formData,
+      testCases: toUpload,
+      ...config,
+    };
+
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/upload-to-alm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d.status === 'success') {
+        setUploadResults(d.results || []);
+        setToast({ message: d.message || 'Upload complete.', type: 'save' });
+      } else {
+        setToast({ message: `Error: ${d.detail || d.message || 'Upload failed.'}`, type: 'error' });
+      }
+    } catch {
+      setToast({ message: 'Error: Unable to upload. Is the backend running?', type: 'error' });
+    } finally {
+      setUploadRunning(false);
+      setUploadModalOpen(false);
+    }
+  };
+
+
+
+  const renderGeneratorView = (title: string) => (
+    <>
+      <h1 className="page-title">{title}</h1>
+      <p className="page-subtitle">Fetch User Story dynamically from {formData.selectedTool} or define explicit generation parameters.</p>
+
+      <div className="twin-col">
+        {/* Left Side -> Controls */}
+        <div className="left-controls" style={{display: 'flex', flexDirection: 'column', gap: '1.5rem'}}>
+          <div className="card" style={{padding: '1.5rem'}}>
+            <div className="card-header" style={{margin: '0 0 1rem 0'}}>
+              <div className="card-title" style={{fontSize: '0.95rem'}}>Requirement Source</div>
+            </div>
+            
+            <div className="form-group">
+              <label>{getPlatformIssueId(formData.selectedTool).label}</label>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input type="text" name="issueId" value={formData.issueId} onChange={handleChange} className="form-control" placeholder={getPlatformIssueId(formData.selectedTool).placeholder} style={{ flex: 1 }} />
+                <button
+                  className="btn btn-primary"
+                  title="Fetch issue details"
+                  style={{ width: '2.4rem', height: '2.4rem', padding: '0', flexShrink: 0, borderRadius: '6px' }}
+                  disabled={!formData.issueId.trim() || issueFetching}
+                  onClick={handleFetchIssue}
+                >
+                  {issueFetching ? <RefreshCw size={18} className="spin" /> : <Search size={18} />}
+                </button>
+              </div>
+            </div>
+            <div style={{textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: '1rem 0'}}>OR PASTE BELOW</div>
+            <div className="form-group">
+                <textarea className="form-control" rows={3} placeholder="Provide manual contextual details here for the LLM payload..." />
+            </div>
+          </div>
+
+          <div className="card" style={{padding: '1.5rem', borderColor: 'var(--primary)'}}>
+            <div className="card-header" style={{margin: '0 0 1rem 0'}}>
+              <div className="card-title" style={{fontSize: '0.95rem'}}>Generation Instructions</div>
+            </div>
+            <p style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>
+              Agent will utilize {formData.llmProvider} to execute zero-hallucination extraction mapping to the Test Plan structure.
+            </p>
+          </div>
+        </div>
+
+        {/* Right Side -> Preview Pane (Gap Analysis / Issue Details) */}
+        <div className="preview-pane" style={(tpGapAnalysis || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.5rem', height: 'auto', minHeight: '400px', overflowY: 'auto', maxHeight: '500px' } : {}}>
+          {tpGapAnalysis ? (
+            <GapAnalysisPreview analysis={tpGapAnalysis} />
+          ) : issueDetails ? (
+            <IssueDetailsPreview details={issueDetails} issueId={formData.issueId} tool={formData.selectedTool} />
+          ) : (
+            <>
+              <ClipboardList size={48} style={{opacity: 0.3, marginBottom: '1rem'}} />
+              <h3 style={{fontWeight: '600', marginBottom: '0.5rem'}}>No analysis available</h3>
+              <p style={{fontSize: '0.85rem', maxWidth: '250px'}}>Run Analyze Gaps First to review missing requirement details before generation.</p>
+            </>
+          )}
+        </div>
+      </div>
+
+      {currentView === 'review' && tcResults && (
+        <TestCasesResultsSection
+          data={tcResults}
+          tool={formData.selectedTool}
+          selectedIndices={selectedTcIndices}
+          onToggleSelect={(index) => {
+            setSelectedTcIndices(prev =>
+              prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+            );
+          }}
+          onSelectAll={(all) => {
+            setSelectedTcIndices(all ? (tcResults?.testCases?.map((_, i) => i) || []) : []);
+          }}
+          onEdit={(tc, index) => {
+            setEditingTcIndex(index);
+            setEditingTc(tc);
+          }}
+          onDelete={handleDeleteTc}
+          onDeleteSelected={handleDeleteSelected}
+        />
+      )}
+
+      {currentView === 'testscenarios' && tpScenarios && (
+        <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
+          <div className="card-header" style={{ margin: '0 0 1.5rem 0' }}>
+            <div className="card-title">Generated Test Scenarios</div>
+          </div>
+          <TestCasesPreview
+            data={tpScenarios}
+            tool={formData.selectedTool}
+            selectedIndices={selectedTsIndices}
+            onToggleSelect={(index) => {
+              setSelectedTsIndices(prev =>
+                prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+              );
+            }}
+            onSelectAll={(all) => {
+              setSelectedTsIndices(all ? (tpScenarios?.testCases?.map((_, i) => i) || []) : []);
+            }}
+          />
+        </div>
+      )}
+
+      {tpStatus ? (
+        <div className={getStatusClass(tpStatus)} style={{ marginTop: '1.5rem', marginBottom: 0, justifyContent: 'space-between' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {renderStatusIcon(tpStatus)} {tpStatus}
+          </span>
+          {tpDocPath ? (
+            <a className="btn btn-outline" href={`${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tpDocPath)}`} target="_blank" rel="noreferrer">
+              Download Test Plan
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="actions-row" style={{borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', marginTop: '1.5rem', justifyContent: 'flex-start'}}>
+        <button className="btn btn-salmon" disabled={tpGapRunning} onClick={async () => {
+          setTpGapAnalysis(null);
+          setTpDocPath('');
+          setTpGapRunning(true);
+          try {
+            const res = await fetch(`${BACKEND_API_BASE}/analyze-gaps`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(formData),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.status === 'success' && data.analysis) {
+              setTpGapAnalysis(data.analysis);
+              setTpStatus('Gap analysis completed.');
+              setToast({ message: 'Gap analysis completed successfully.', type: 'success' });
+            } else {
+              const err = data.detail || data.message || 'Gap analysis failed.';
+              setTpStatus(`Error: ${err}`);
+              setToast({ message: `Analysis Failed: ${err}`, type: 'error' });
+            }
+          } catch {
+            setTpStatus('Error: Unable to analyze requirement gaps.');
+            setToast({ message: 'Network Error: Analysis failed.', type: 'error' });
+          } finally {
+            setTpGapRunning(false);
+          }
+        }}>{tpGapRunning ? <><RefreshCw size={16} className="spin" /> Analyzing...</> : <>Analyze Gaps First</>}</button>
+        <button className="btn btn-outline red" disabled={tpGenerating} onClick={async () => {
+          // Action mapping remains same as before
+          const isScenarios = currentView === 'testscenarios';
+          const isReview = currentView === 'review';
+          const isTestPlan = currentView === 'testplan';
+
+          setTpDocPath('');
+          if (isScenarios) setTpScenarios(null);
+          setTpGenerating(true);
+          try {
+            const apiEndpoint = isScenarios ? '/generate-scenarios' : isReview ? '/generate-test-cases' : '/generate';
+            const res = await fetch(`${BACKEND_API_BASE}${apiEndpoint}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(isReview ? { ...formData, ...tcFormData } : formData),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (d.status === 'success') {
+              const parts = (d.document_path || '').split(/[\\/]/);
+              const filename = parts[parts.length - 1] || 'document';
+              setTpDocPath(d.document_path || '');
+              if (isReview && d.test_cases) setTcResults(d.test_cases);
+              if (isScenarios && d.test_cases) setTpScenarios(d.test_cases);
+              setTpStatus(`${isScenarios ? 'Scenarios' : isReview ? 'Test Cases' : 'Test Plan'} generated: ${filename}`);
+              setToast({ message: `${isScenarios ? 'Scenarios' : isReview ? 'Test Cases' : 'Test Plan'} Generated: ${filename}`, type: 'success' });
+            } else {
+              const err = d.detail || d.message || 'Execution error.';
+              setTpStatus(`Error: ${err}`);
+              setToast({ message: `Generation Error: ${err}`, type: 'error' });
+            }
+          } catch {
+            setTpStatus('Error: Backend exception. Is API server running?');
+            setToast({ message: 'Network Error: Generation failed.', type: 'error' });
+          } finally {
+            setTpGenerating(false);
+          }
+        }}>{tpGenerating
+          ? <><RefreshCw size={16} className="spin" /> Generating...</>
+          : <>
+              {currentView === 'testplan' ? 'Generate Test Plan' :
+              currentView === 'testscenarios' ? 'Generate Test Scenarios' :
+              currentView === 'review' ? 'Review Test Cases Plan' :
+              'Generate Directly'}
+            </>
+        }</button>
+
+        {currentView === 'review' && tcResults && (
+           <button className="btn btn-primary" onClick={() => setUploadModalOpen(true)} style={{ marginLeft: '1rem' }}>
+              Upload to {formData.selectedTool}
+           </button>
+        )}
+      </div>
+    </>
+  );
+
+  const handleTcChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => setTcFormData({ ...tcFormData, [e.target.name]: e.target.value });
+
+  const tcStatusClass = (s: string) => {
+    if (!s) return '';
+    const lower = s.toLowerCase();
+    if (lower.includes('generated') || lower.includes('completed')) return 'status-indicator success';
+    if (lower.includes('error') || lower.includes('failed')) return 'status-indicator error';
+    return 'status-indicator neutral';
+  };
+
+  const tcStatusIcon = (s: string) => {
+    if (s === 'Test cases generated.' || s.startsWith('Test cases generated:') || s === 'Gap analysis completed.') return <CheckCircle2 size={18} />;
+    if (s.startsWith('Error:')) return <AlertTriangle size={18} />;
+    return <Zap size={18} />;
+  };
+
+  const renderTestCasesView = () => (
+    <>
+      <h1 className="page-title">Test Case Architect</h1>
+      <p className="page-subtitle">
+        Generate detailed, structured test cases from {formData.selectedTool} tickets or manual requirements using a powerful
+        AI hallucination-proof and context-aware generation process.
+      </p>
+
+      {/* Two-column: Requirement Source | Requirement Preview */}
+      <div className="tc-twin-col">
+        {/* Left — Requirement Source */}
+        <div className="card" style={{ padding: '1.5rem' }}>
+          <div className="card-header" style={{ margin: '0 0 1.25rem 0' }}>
+            <div className="card-title" style={{ fontSize: '0.95rem' }}>Requirement Source</div>
+          </div>
+
+          <div className="form-group">
+            <label>{getPlatformIssueId(formData.selectedTool).label}</label>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input
+                type="text"
+                name="issueId"
+                value={formData.issueId}
+                onChange={handleChange}
+                className="form-control"
+                placeholder={getPlatformIssueId(formData.selectedTool).placeholder}
+                style={{ flex: 1 }}
+              />
+              <button
+                className="btn btn-primary"
+                title="Fetch issue details"
+                style={{ width: '2.4rem', height: '2.4rem', padding: '0', flexShrink: 0, borderRadius: '6px' }}
+                disabled={!formData.issueId.trim() || issueFetching}
+                onClick={handleFetchIssue}
+              >
+                {issueFetching ? <Zap size={18} /> : <Search size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="tc-or-divider">OR PASTE BELOW</div>
+
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>Manual Requirements</label>
+            <textarea
+              name="manualRequirements"
+              value={tcFormData.manualRequirements}
+              onChange={handleTcChange}
+              className="form-control"
+              rows={5}
+              placeholder="Paste your requirements, user stories, acceptance criteria, or condition details here..."
+            />
+          </div>
+        </div>
+
+        {/* Right — Requirement Preview / Gap Analysis */}
+        <div className="preview-pane" style={(tcGapAnalysis || tcResults || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.5rem', height: 'auto', minHeight: '400px', overflowY: 'auto', maxHeight: '500px' } : {}}>
+          {tcGapAnalysis ? (
+            <GapAnalysisPreview analysis={tcGapAnalysis} />
+          ) : tcResults ? (
+            <>
+              <div style={{ marginBottom: '0.75rem' }}>
+                <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem', marginBottom: '0.4rem' }}>Requirement Context</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>{formData.issueId || 'Manual Input'}</div>
+                </div>
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', background: 'var(--bg-main)', overflowY: 'auto', maxHeight: '400px', width: '100%' }}>
+                {issueDetails ? (
+                  <IssueDetailsPreview details={issueDetails} issueId={formData.issueId} tool={formData.selectedTool} />
+                ) : (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{tcFormData.manualRequirements || 'No requirements provided.'}</p>
+                )}
+              </div>
+            </>
+          ) : issueDetails ? (
+            <IssueDetailsPreview details={issueDetails} issueId={formData.issueId} tool={formData.selectedTool} />
+          ) : (
+            <>
+              <ClipboardList size={48} style={{ opacity: 0.2, marginBottom: '1rem' }} />
+              <h3 style={{ fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.95rem' }}>Requirement Preview</h3>
+              <p style={{ fontSize: '0.82rem', maxWidth: '220px' }}>
+                Click "Analyze Gaps First" to review gaps or "Generate Test Cases" to create test cases.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Generation Preference */}
+      <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
+        <div className="card-header" style={{ margin: '0 0 1rem 0' }}>
+          <div className="card-title" style={{ fontSize: '0.95rem' }}>Generation Preference</div>
+          <span className="badge-config" style={{ marginLeft: 'auto' }}>Customize Instructions</span>
+        </div>
+        <textarea
+          name="customInstructions"
+          value={tcFormData.customInstructions}
+          onChange={handleTcChange}
+          className="form-control"
+          rows={4}
+          placeholder={
+            'e.g. Generate functional test cases covering happy path and edge cases\n' +
+            'e.g. Create 15 test cases with boundary value analysis\n' +
+            'e.g. Focus on API integration and negative scenarios\n' +
+            'e.g. Include preconditions, steps, expected results for each test case'
+          }
+        />
+      </div>
+
+      {/* Optional Fields Toggle */}
+      <div
+        className="tc-optional-toggle"
+        onClick={() => setShowTCOptional(!showTCOptional)}
+      >
+        <ChevronDown
+          size={16}
+          style={{ transform: showTCOptional ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+        />
+        <span>Show Optional Fields</span>
+        <span className="tc-optional-hint">Prerequisites, Rules, Widgets, Context</span>
+      </div>
+
+      {showTCOptional && (
+        <div className="card" style={{ padding: '1.5rem', borderTop: 'none', borderRadius: '0 0 8px 8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+
+            <div className="tc-opt-field">
+              <div className="tc-opt-field__header">
+                <span className="tc-opt-field__icon tc-opt-field__icon--prereq">⇌</span>
+                <div>
+                  <div className="tc-opt-field__title">Shared Prerequisites</div>
+                  <div className="tc-opt-field__sub">Referenced in all Pre-conditions</div>
+                </div>
+              </div>
+              <textarea
+                name="sharedPrerequisites"
+                value={tcFormData.sharedPrerequisites}
+                onChange={handleTcChange}
+                className="form-control"
+                rows={3}
+                placeholder="e.g. User logged in → Settings page"
+              />
+            </div>
+
+            <div className="tc-opt-field">
+              <div className="tc-opt-field__header">
+                <span className="tc-opt-field__icon tc-opt-field__icon--rules">⊘</span>
+                <div>
+                  <div className="tc-opt-field__title">Business Rules</div>
+                  <div className="tc-opt-field__sub">Validation rules, constraints</div>
+                </div>
+              </div>
+              <textarea
+                name="businessRules"
+                value={tcFormData.businessRules}
+                onChange={handleTcChange}
+                className="form-control"
+                rows={3}
+                placeholder="e.g. Email must be valid format, Age ≥ 18, Password min 8 chars"
+              />
+            </div>
+
+            <div className="tc-opt-field">
+              <div className="tc-opt-field__header">
+                <span className="tc-opt-field__icon tc-opt-field__icon--widgets">⊞</span>
+                <div>
+                  <div className="tc-opt-field__title">Widgets / UI Sections</div>
+                  <div className="tc-opt-field__sub">Test cases per widget</div>
+                </div>
+              </div>
+              <textarea
+                name="widgetsSections"
+                value={tcFormData.widgetsSections}
+                onChange={handleTcChange}
+                className="form-control"
+                rows={3}
+                placeholder="e.g. Login Form (editable), Dashboard Cards"
+              />
+            </div>
+
+            <div className="tc-opt-field">
+              <div className="tc-opt-field__header">
+                <span className="tc-opt-field__icon tc-opt-field__icon--context">⊕</span>
+                <div>
+                  <div className="tc-opt-field__title">Additional Context</div>
+                  <div className="tc-opt-field__sub">Edge cases, special notes</div>
+                </div>
+              </div>
+              <textarea
+                name="additionalContext"
+                value={tcFormData.additionalContext}
+                onChange={handleTcChange}
+                className="form-control"
+                rows={3}
+                placeholder="Extra context or focus areas..."
+              />
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Test Case Results Section */}
+      {tcResults && (
+        <TestCasesResultsSection 
+          data={tcResults} 
+          tool={formData.selectedTool} 
+          selectedIndices={selectedTcIndices}
+          onToggleSelect={(index) => {
+            setSelectedTcIndices(prev => 
+              prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+            );
+          }}
+          onSelectAll={(all) => {
+            setSelectedTcIndices(all ? (tcResults?.testCases?.map((_, i) => i) || []) : []);
+          }}
+          onEdit={(tc, index) => {
+            setEditingTcIndex(index);
+            setEditingTc(tc);
+          }}
+          onDelete={handleDeleteTc}
+          onDeleteSelected={handleDeleteSelected}
+        />
+      )}
+
+      {/* Status bar */}
+      {tcStatus ? (
+        <div className={tcStatusClass(tcStatus)} style={{ marginTop: '1.5rem', marginBottom: 0, justifyContent: 'space-between' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {tcStatusIcon(tcStatus)} {tcStatus}
+          </span>
+          {tcDocPath ? (
+            <a
+              className="btn btn-outline"
+              href={`${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tcDocPath)}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Download Results
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Actions */}
+      <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', marginTop: '1.5rem', justifyContent: 'flex-start' }}>
+        <button className="btn btn-salmon" disabled={tcGapRunning} onClick={async () => {
+          setTcDocPath('');
+          setTcResults(null);
+          setTcGapAnalysis(null);
+          setTcGapRunning(true);
+          try {
+            const res = await fetch(`${BACKEND_API_BASE}/analyze-gaps`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...formData, ...tcFormData }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.status === 'success' && data.analysis) {
+              setTcGapAnalysis(data.analysis);
+              setTcStatus('Gap analysis completed.');
+              setToast({ message: 'Gap analysis completed successfully.', type: 'success' });
+            } else {
+              const err = data.detail || data.message || 'Gap analysis failed.';
+              setTcStatus(`Error: ${err}`);
+              setToast({ message: `Analysis Failed: ${err}`, type: 'error' });
+            }
+          } catch {
+            setTcStatus('Error: Unable to analyze requirement gaps.');
+            setToast({ message: 'Network Error: Analysis failed.', type: 'error' });
+          } finally {
+            setTcGapRunning(false);
+          }
+        }}>
+          {tcGapRunning ? <><RefreshCw size={16} className="spin" /> Analyzing...</> : <><ClipboardList size={16} /> Analyze Gaps First</>}
+        </button>
+
+        <button className="btn btn-outline red" disabled={tcGenerating} onClick={async () => {
+          setTcDocPath('');
+          setTcResults(null);
+          setTcGapAnalysis(null);
+          setTcGenerating(true);
+          try {
+            const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...formData, ...tcFormData }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (d.status === 'success' && d.test_cases) {
+              const parts = (d.document_path || '').split(/[\\/]/);
+              const filename = parts[parts.length - 1] || 'test_cases.xlsx';
+              setTcDocPath(d.document_path || '');
+              setTcResults(d.test_cases);
+              const tcCount = d.test_cases?.testCases?.length || 0;
+              setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
+              setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
+            } else if (d.status === 'success' && !d.test_cases) {
+              setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
+              setToast({ message: 'Error: No test cases generated', type: 'error' });
+            } else {
+              const err = d.detail || d.message || 'Generation failed.';
+              setTcStatus(`Error: ${err}`);
+              setToast({ message: `Generation Error: ${err}`, type: 'error' });
+            }
+          } catch (e) {
+            const errMsg = e instanceof Error ? e.message : 'Unknown error';
+            setTcStatus(`Error: ${errMsg}. Is the API server running?`);
+            setToast({ message: `Network Error: ${errMsg}`, type: 'error' });
+          } finally {
+            setTcGenerating(false);
+          }
+        }}>
+          {tcGenerating ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate Test Cases</>}
+        </button>
+      </div>
+
+      {/* QA Note */}
+      <div className="tc-qa-note">
+        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+        <span>
+          <strong>Quality Assurance Note:</strong> Autonomous confirmation methods need to be tagged. Autonomous coverage
+          limits need to be managed appropriately to avoid incomplete requirement traceability. Always review generated
+          test cases against source requirements before sign-off.
+        </span>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <TopHeader />
+      <div className="layout">
+        <aside className="sidebar">
+          <div className="sidebar-header">
+            COMMAND CENTER 
+            <ChevronDown size={14} />
+          </div>
+          <div className="nav-links">
+            {STEPS.map((step) => (
+              <div 
+                key={step.id} 
+                className={`nav-item ${currentView === step.id ? 'active' : ''}`}
+                onClick={() => setCurrentView(step.id)}
+              >
+                <step.icon size={18} />
+                {step.label}
+                {step.hasArrow && <ChevronDown size={14} style={{marginLeft: 'auto'}} />}
+              </div>
+            ))}
+          </div>
+
+          <div className="sidebar-bottom">
+            <div className="nav-item">
+              <span style={{display: 'flex', gap: '0.75rem', alignItems: 'center'}}><Settings size={18} /> Settings</span>
+            </div>
+            <div className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+              <span style={{display: 'flex', gap: '0.75rem', alignItems: 'center'}}>
+                {theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}
+                {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        <main className="main-content">
+          {currentView === 'connection' ? renderConnectionView()
+            : currentView === 'testcases' ? renderTestCasesView()
+            : renderGeneratorView(STEPS.find(s => s.id === currentView)?.label)}
+        </main>
+      </div>
+      {uploadModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000
+        }} onClick={() => setUploadModalOpen(false)}>
+          <div style={{
+            backgroundColor: 'var(--bg-main)',
+            borderRadius: '8px',
+            padding: '2rem',
+            maxWidth: '500px',
+            width: '90%'
+          }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0, marginBottom: '1.5rem' }}>Upload to {formData.selectedTool}</h2>
+
+            {formData.selectedTool === 'Jira' && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Key *</label>
+                <input
+                  type="text"
+                  placeholder="e.g., PROJ"
+                  value={uploadConfig.projectKey}
+                  onChange={e => setUploadConfig(p => ({ ...p, projectKey: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-color)'
+                  }}
+                />
+              </div>
+            )}
+            {formData.selectedTool === 'ADO' && (
+              <>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Name *</label>
+                  <input
+                    type="text"
+                    value={uploadConfig.projectName}
+                    onChange={e => setUploadConfig(p => ({ ...p, projectName: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-color)'
+                    }}
+                  />
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Test Plan ID *</label>
+                  <input
+                    type="text"
+                    value={uploadConfig.testPlanId}
+                    onChange={e => setUploadConfig(p => ({ ...p, testPlanId: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-color)'
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {formData.selectedTool === 'TestRail' && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project ID *</label>
+                <input
+                  type="text"
+                  value={uploadConfig.projectId}
+                  onChange={e => setUploadConfig(p => ({ ...p, projectId: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-color)'
+                  }}
+                />
+              </div>
+            )}
+            {formData.selectedTool === 'QTest' && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project ID *</label>
+                <input
+                  type="text"
+                  value={uploadConfig.projectId}
+                  onChange={e => setUploadConfig(p => ({ ...p, projectId: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-color)'
+                  }}
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '2rem' }}>
+              <button
+                className="btn btn-outline"
+                onClick={() => setUploadModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => handleUploadToALM(uploadConfig)}
+                disabled={uploadRunning}
+              >
+                {uploadRunning ? <><RefreshCw size={16} className="spin" /> Uploading...</> : <>Upload</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toast && (
+        <div className={`toast-notification toast-notification--${toast.type}`}>
+          {toast.type === 'error' ? <XCircle size={18} /> : 
+           toast.type === 'save' ? <Database size={18} /> : 
+           <CheckCircle2 size={18} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
+      {editingTc && (
+        <EditTestCaseModal 
+          tc={editingTc} 
+          onSave={handleSaveEditedTc} 
+          onClose={() => { setEditingTc(null); setEditingTcIndex(null); }} 
+        />
+      )}
+    </>
+  );
+};
+
+export default App;

@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+requests
+python-docx
+python-dotenv
+openai
+anthropic
+lxml
+openpyxl

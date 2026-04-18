@@ -1,0 +1,10 @@
+INFO:     Will watch for changes in these directories: ['D:\\OneDrive - OTSI\\Documents\\AITesting_PromodDutta\\TestPlan_TC_Generator']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [44956] using StatReload
+INFO:     Started server process [23292]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:49984 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49986 - "POST /fetch-ticket HTTP/1.1" 422 Unprocessable Content
+WARNING:  StatReload detected changes in 'tools\api_server.py'. Reloading...
+ 

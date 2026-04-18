@@ -1,0 +1,18 @@
+{
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "off",
+  "include": ["**/*.py"],
+  "exclude": ["**/.*", "**/__pycache__", ".venv"],
+  "extraPaths": [
+    "tools",
+    "frontend/api",
+    "."
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportUndefinedVariable": "none",
+  "reportUnusedImport": "none"
+}

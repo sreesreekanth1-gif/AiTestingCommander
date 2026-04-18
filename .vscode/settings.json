@@ -1,0 +1,20 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/tools",
+    "${workspaceFolder}/frontend/api",
+    "${workspaceFolder}"
+  ],
+  "python.analysis.typeCheckingMode": "off",
+  "python.analysis.diagnosticMode": "workspace",
+  "python.linting.enabled": false,
+  "pylance.analysis.typeCheckingMode": "off",
+  "pylance.diagnosticsMode": "off",
+  "terminal.integrated.env.windows": {
+    "PYTHONPATH": "${workspaceFolder}\\tools;${workspaceFolder}\\frontend\\api;${workspaceFolder}"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.python",
+    "editor.formatOnSave": false
+  }
+}
