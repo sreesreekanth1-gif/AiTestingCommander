@@ -22,16 +22,17 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             engine = TestCasesEngine(payload_path)
-            final_doc_path, test_cases_data = engine.run_pipeline()
+            final_doc_path, md_path, test_cases_data = engine.run_pipeline()
 
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            
+
             response = {
                 "status": "success",
                 "message": "Test cases generated.",
                 "document_path": final_doc_path,
+                "md_path": md_path,
                 "test_cases": test_cases_data
             }
             self.wfile.write(json.dumps(response).encode('utf-8'))

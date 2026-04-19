@@ -60,6 +60,7 @@ class TestCasePayload(BaseModel):
     tcDepth: str = "Standard"
     tcMaxCount: str = ""
     tcFocusAreas: str = ""
+    coverageInstructions: str = ""
 
 class ScenarioPayload(BaseModel):
     selectedTool: str
@@ -115,6 +116,13 @@ class UpdatePayload(BaseModel):
     test_cases: list
     issueId: str
     selectedTool: str
+
+
+class SaveLibraryPayload(BaseModel):
+    title: str = ""
+    testCases: list
+    issueId: str = ""
+    savedAt: str = ""
 
 
 def _resolve_generated_artifact(path: str) -> str:
@@ -364,11 +372,12 @@ def generate_test_cases(payload: TestCasePayload):
 
     try:
         engine = TestCasesEngine(payload_path)
-        final_doc_path, test_cases_data = engine.run_pipeline()
+        final_doc_path, md_path, test_cases_data = engine.run_pipeline()
         return {
             "status": "success",
             "message": "Test cases generated in Excel format.",
             "document_path": final_doc_path,
+            "md_path": md_path,
             "test_cases": test_cases_data,
         }
     except Exception as e:
@@ -468,6 +477,39 @@ def upload_to_alm(payload: UploadPayload):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/save-library")
+def save_library(payload: SaveLibraryPayload):
+    import json as json_lib
+    from datetime import datetime
+
+    lib_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".tmp"))
+    os.makedirs(lib_dir, exist_ok=True)
+    lib_path = os.path.join(lib_dir, "library.json")
+
+    entry = payload.dict()
+    entry["savedAt"] = entry.get("savedAt") or datetime.utcnow().isoformat()
+
+    existing = []
+    if os.path.exists(lib_path):
+        try:
+            with open(lib_path, "r", encoding="utf-8") as f:
+                existing = json_lib.load(f)
+        except Exception:
+            existing = []
+
+    existing.append(entry)
+
+    with open(lib_path, "w", encoding="utf-8") as f:
+        json_lib.dump(existing, f, indent=2)
+
+    return {
+        "status": "success",
+        "message": f"Saved '{entry['title']}' to library ({len(entry['testCases'])} cases).",
+        "total_saved": len(existing)
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

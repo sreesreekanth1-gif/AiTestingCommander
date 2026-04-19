@@ -236,6 +236,37 @@ class TestCasesEngine:
         wb.save(output)
         return output
 
+    def generate_md_file(self, data_schema: dict) -> str:
+        """Generate a Markdown file from test cases data."""
+        test_cases = data_schema.get("testCases", [])
+        title = data_schema.get("testPlanTitle", "Generated Test Cases")
+
+        lines = [f"# {title}\n"]
+        for i, tc in enumerate(test_cases, 1):
+            lines.append(f"## {i}. [{tc.get('testCaseId','')}] {tc.get('testCaseTitle','')}")
+            lines.append(f"**Module:** {tc.get('module','')}")
+            lines.append(f"**Priority:** {tc.get('priority','')} | **Type:** {tc.get('testType','')}")
+            lines.append(f"\n**Preconditions:** {tc.get('preconditions','')}\n")
+            lines.append("**Steps:**")
+            for s in (tc.get("testSteps") or []):
+                lines.append(f"{s.get('stepNumber','?')}. {s.get('action','')}")
+                if s.get("expected"):
+                    lines.append(f"   - Expected: {s['expected']}")
+            lines.append(f"\n**Expected Result:** {tc.get('expectedResult','')}\n")
+            lines.append("---\n")
+
+        if os.name == 'nt':
+            tmp_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".tmp"))
+        else:
+            tmp_dir = "/tmp"
+        os.makedirs(tmp_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_id = str(self.config.get('issueId', 'output')).replace('/', '_').replace('\\', '_')
+        md_path = os.path.join(tmp_dir, f"TestCases_{output_id}_{ts}.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return md_path
+
     def run_pipeline(self) -> tuple:
         """Entry point for Excel + JSON output."""
         print("[TC-Engine] Starting B.L.A.S.T Test Cases Engine Pipeline", file=sys.stderr)
@@ -246,7 +277,9 @@ class TestCasesEngine:
             print(f"[TC-Engine] Generated {len(test_cases.get('testCases', []))} test cases", file=sys.stderr)
             xlsx_path = self.generate_xlsx_file(test_cases)
             print(f"[TC-Engine] Excel file created at {xlsx_path}", file=sys.stderr)
-            return os.path.abspath(xlsx_path), test_cases
+            md_path = self.generate_md_file(test_cases)
+            print(f"[TC-Engine] Markdown file created at {md_path}", file=sys.stderr)
+            return os.path.abspath(xlsx_path), os.path.abspath(md_path), test_cases
         except Exception as e:
             print(f"[TC-Engine] Error: {str(e)}", file=sys.stderr)
             raise

@@ -5,8 +5,8 @@ import {
   ChevronDown, Settings, Sun, Moon,
   CheckCircle2, XCircle, X, WifiOff, AlertTriangle, Copy, Check, Search,
   RefreshCw, BarChart2, Upload, Link2, Edit3, FileUp, Minus,
-  ChevronUp, Filter, Play, Pencil, Download, Trash2, Plus,
-  ArrowUpFromLine, ArrowDownFromLine
+  ChevronUp, ListFilter, Play, Pencil, Download, Trash2, Plus,
+  ArrowUpFromLine, ArrowDownFromLine, Eraser
 } from 'lucide-react';
 import './index.css';
 
@@ -272,8 +272,39 @@ const TestCasesPreview: React.FC<{
   onEdit?: (tc: TestCase, index: number) => void;
   onDelete?: (index: number) => void;
 }> = ({ data, tool, selectedIndices = [], onToggleSelect, onSelectAll, onEdit, onDelete }) => {
-  const cases = (data?.testCases || []).filter(tc => !!tc);
-  const allSelected = cases.length > 0 && selectedIndices.length === cases.length;
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('All');
+  const [typeFilter, setTypeFilter] = useState('All');
+
+  const cases = (data?.testCases || []).filter((tc): tc is TestCase => !!tc);
+
+  const filteredItems = useMemo(() => {
+    return cases.map((tc, idx) => ({ tc, originalIndex: idx }))
+      .filter(({ tc }) => {
+        const lowerSearch = searchText.toLowerCase();
+        const titleMatch = (tc.testCaseTitle || "").toLowerCase().includes(lowerSearch);
+        const precondMatch = (tc.preconditions || "").toLowerCase().includes(lowerSearch);
+        const stepsMatch = Array.isArray(tc.testSteps) && tc.testSteps.some(s => (s?.action || "").toLowerCase().includes(lowerSearch));
+        
+        const matchesSearch = !searchText || titleMatch || precondMatch || stepsMatch;
+        const matchesPriority = priorityFilter === 'All' || tc.priority === priorityFilter;
+        const matchesType = typeFilter === 'All' || tc.testType === typeFilter;
+
+        return matchesSearch && matchesPriority && matchesType;
+      });
+  }, [cases, searchText, priorityFilter, typeFilter]);
+
+  const allSelected = filteredItems.length > 0 && 
+    filteredItems.every(({ originalIndex }) => selectedIndices.includes(originalIndex));
+
+  const handleClearFilters = () => {
+    setSearchText('');
+    setPriorityFilter('All');
+    setTypeFilter('All');
+  };
+
+  const hasActiveFilters = searchText !== '' || priorityFilter !== 'All' || typeFilter !== 'All';
 
   return (
     <div className="test-cases-preview-wrapper" style={{ width: '100%' }}>
@@ -281,20 +312,80 @@ const TestCasesPreview: React.FC<{
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No test cases returned.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem', padding: '0 0.5rem' }}>
-             {onSelectAll && (
-               <input 
-                 type="checkbox" 
-                 checked={allSelected} 
-                 onChange={(e) => onSelectAll(e.target.checked)} 
-                 style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-               />
-             )}
-             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Select All ({cases.length} cases)</span>
+          <div className="filter-controls-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', minHeight: '40px', width: '100%' }}>
+             {onSelectAll ? (
+               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                 <input 
+                   type="checkbox" 
+                   checked={allSelected} 
+                   onChange={(e) => onSelectAll(e.target.checked)} 
+                   style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                 />
+                 <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                   Select All ({filteredItems.length} cases)
+                 </span>
+               </div>
+             ) : <div />}
+             
+             <div className="filter-controls-right" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {hasActiveFilters && (
+                  <button className="filter-clear-btn" onClick={handleClearFilters}>
+                    <Eraser size={14} /> Clear
+                  </button>
+                )}
+                <button 
+                  className={`filter-toggle-btn ${isFilterVisible ? 'active' : ''}`}
+                  onClick={() => setIsFilterVisible(!isFilterVisible)}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  <ListFilter size={14} /> Filter
+                </button>
+             </div>
           </div>
 
-          {cases.map((tc, i) => (
-            <div key={i} style={{ 
+          {isFilterVisible && (
+            <div className="filter-expand-panel" style={{ width: '100%', boxSizing: 'border-box' }}>
+              <div className="filter-input-wrapper">
+                <Search size={14} className="filter-input-icon" />
+                <input 
+                  type="text" 
+                  placeholder="Search cases..." 
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className="filter-input-field"
+                />
+              </div>
+              
+              <select 
+                value={priorityFilter} 
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="filter-select-field"
+              >
+                <option value="All">All Priorities</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+
+              <select 
+                value={typeFilter} 
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="filter-select-field"
+              >
+                <option value="All">All Types</option>
+                <option value="Functional">Functional</option>
+                <option value="Non-Functional">Non-Functional</option>
+                <option value="Regression">Regression</option>
+                <option value="Smoke">Smoke</option>
+                <option value="Sanity">Sanity</option>
+                <option value="API">API</option>
+              </select>
+            </div>
+          )}
+
+          <div className="test-cases-scroll-container" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: '550px', paddingRight: '0.5rem', paddingBottom: '0.5rem' }}>
+            {filteredItems.map(({ tc, originalIndex }) => (
+              <div key={originalIndex} style={{ 
               border: '1px solid var(--border-color)', 
               borderRadius: '6px', 
               padding: '0.85rem', 
@@ -306,15 +397,15 @@ const TestCasesPreview: React.FC<{
                    {onToggleSelect && (
                      <input 
                        type="checkbox" 
-                       checked={selectedIndices.includes(i)} 
-                       onChange={() => onToggleSelect(i)} 
+                       checked={selectedIndices.includes(originalIndex)} 
+                       onChange={() => onToggleSelect(originalIndex)} 
                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                      />
                    )}
                    <div style={{ display: 'flex', gap: '0.5rem' }}>
                     {onEdit && (
                       <button 
-                        onClick={() => onEdit(tc, i)}
+                        onClick={() => onEdit(tc, originalIndex)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '2px' }}
                         title="Edit Test Case"
                       >
@@ -323,7 +414,7 @@ const TestCasesPreview: React.FC<{
                     )}
                     {onDelete && (
                       <button 
-                        onClick={() => onDelete(i)}
+                        onClick={() => onDelete(originalIndex)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px' }}
                         title="Delete Test Case"
                       >
@@ -368,11 +459,13 @@ const TestCasesPreview: React.FC<{
               </div>
             </div>
           ))}
+          </div>
         </div>
       )}
     </div>
   );
 };
+
 
 const EditTestCaseModal: React.FC<{
   tc: TestCase;
@@ -736,122 +829,37 @@ const TestCasesResultsSection: React.FC<{
   onDeleteSelected: () => void;
   title?: string;
 }> = ({ data, tool, selectedIndices, onToggleSelect, onSelectAll, onEdit, onDelete, onDeleteSelected, title = "Generated Test Cases" }) => {
-  const [searchText, setSearchText] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('All');
-  const [typeFilter, setTypeFilter] = useState('All');
-
-  const cases = data.testCases || [];
-
-  const availableTypes = useMemo(() => {
-    const types = new Set<string>();
-    cases.forEach(tc => { if (tc?.testType) types.add(tc.testType); });
-    return ['All', ...Array.from(types).filter(Boolean)];
-  }, [cases]);
-
-  const filteredData = useMemo(() => {
-    const filteredItems = cases.map((tc, idx) => ({ tc, originalIndex: idx }))
-      .filter(({ tc }) => {
-        if (!tc) return false;
-        const lowerSearch = searchText.toLowerCase();
-        // Defensive checks for missing fields
-        const title = (tc.testCaseTitle || "").toLowerCase();
-        const preconditions = (tc.preconditions || "").toLowerCase();
-        const expected = (tc.expectedResult || "").toLowerCase();
-        const steps = Array.isArray(tc.testSteps) ? tc.testSteps : [];
-        const stepsMatch = steps.some(s => (s?.action || "").toLowerCase().includes(lowerSearch));
-
-        const matchesSearch = !searchText || 
-          title.includes(lowerSearch) ||
-          preconditions.includes(lowerSearch) ||
-          expected.includes(lowerSearch) ||
-          stepsMatch;
-        
-        const matchesPriority = priorityFilter === 'All' || tc.priority === priorityFilter;
-        const matchesType = typeFilter === 'All' || tc.testType === typeFilter;
-
-        return matchesSearch && matchesPriority && matchesType;
-      });
-
-    return {
-      testPlanTitle: data.testPlanTitle,
-      testCases: filteredItems.map(f => f.tc),
-      originalIndices: filteredItems.map(f => f.originalIndex)
-    };
-  }, [cases, searchText, priorityFilter, typeFilter, data.testPlanTitle]);
-
   return (
     <div className="test-results-container">
       <div className="test-results-header">
         <h2 className="test-results-title">{title}</h2>
         
         <div className="test-results-controls">
-          <div className="filter-group">
-            <Search size={14} className="filter-icon" />
-            <input 
-              type="text" 
-              placeholder="Search content..." 
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              className="filter-input"
-              style={{ width: '180px' }}
-            />
-          </div>
-          
-          <select 
-            value={priorityFilter} 
-            onChange={(e) => setPriorityFilter(e.target.value)}
-            className="filter-select"
-          >
-            <option value="All">All Priorities</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>
-
-          <select 
-            value={typeFilter} 
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="filter-select"
-          >
-            {availableTypes.map(t => <option key={t} value={t}>{t === 'All' ? 'All Types' : t}</option>)}
-          </select>
-
-          <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 0.5rem' }}></div>
-
           {selectedIndices.length > 0 && (
-            <button className="btn btn-outline red compact" onClick={onDeleteSelected}>
+            <button className="btn btn-outline red compact" onClick={onDeleteSelected} style={{ height: '32px' }}>
               <Trash2 size={14} /> Delete Selected ({selectedIndices.length})
             </button>
           )}
-          <TcCopyButton data={{ ...data, testCases: filteredData.testCases }} />
+          <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 0.5rem' }}></div>
+          <TcCopyButton data={data} />
         </div>
       </div>
 
       <div className="test-results-card">
         <TestCasesPreview 
-          data={filteredData} 
+          data={data} 
           tool={tool} 
-          selectedIndices={(filteredData.originalIndices || [])
-            .map((origIdx, filtIdx) => selectedIndices.includes(origIdx) ? filtIdx : -1)
-            .filter(idx => idx !== -1)}
-          onToggleSelect={(idx) => {
-            const origIdx = filteredData.originalIndices?.[idx];
-            if (origIdx !== undefined) onToggleSelect(origIdx);
-          }}
+          selectedIndices={selectedIndices}
+          onToggleSelect={onToggleSelect}
           onSelectAll={onSelectAll}
-          onEdit={(tc, idx) => {
-            const origIdx = filteredData.originalIndices?.[idx];
-            if (origIdx !== undefined) onEdit(tc, origIdx);
-          }}
-          onDelete={(idx) => {
-            const origIdx = filteredData.originalIndices?.[idx];
-            if (origIdx !== undefined) onDelete(origIdx);
-          }}
+          onEdit={onEdit}
+          onDelete={onDelete}
         />
       </div>
     </div>
   );
 };
+
 
 const IssueDetailsPreview: React.FC<{ details: IssueDetails; issueId: string; tool: string }> = ({ details, issueId, tool }) => {
   const fieldsOrder = ['Issue ID', 'Title', 'Issue Type', 'Priority', 'State', 'Status', 'Description', 'Labels', 'Components', 'Type', 'Summary', 'Acceptance Criteria', 'Steps', 'Preconditions', 'Expected Result', 'Test Type'];
@@ -963,6 +971,10 @@ const App: React.FC = () => {
   const [tcGapStepIndex, setTcGapStepIndex] = useState(0);
   const [tcGenerating, setTcGenerating] = useState(false);
   const [tcGenerateStepIndex, setTcGenerateStepIndex] = useState(0);
+  const [tcMdPath, setTcMdPath] = useState('');
+  const [tcCoverageScore, setTcCoverageScore] = useState<number | null>(null);
+  const [tcSaveRunning, setTcSaveRunning] = useState(false);
+  const [uploadTargetTool, setUploadTargetTool] = useState<string | null>(null);
 
   // ── Test Scenarios state ──────────────────────────────────────────────────
   const [tpScenarios, setTpScenarios] = useState<TestData | null>(null);
@@ -1403,7 +1415,7 @@ const App: React.FC = () => {
     const newResults = { ...tcResults, testCases: newCases };
     setTcResults(newResults);
     setSelectedTcIndices([]);
-    
+
     // Sync with backend
     try {
       await fetch(`${BACKEND_API_BASE}/update-test-cases`, {
@@ -1418,6 +1430,66 @@ const App: React.FC = () => {
       setToast({ message: 'Selected cases deleted.', type: 'success' });
     } catch {
       setToast({ message: 'Deleted locally, sync failed.', type: 'error' });
+    }
+  };
+
+  const handleRunGapAnalysis = async () => {
+    setTcGapRunning(true);
+    setTcGapAnalysis(null);
+    setTcCoverageScore(null);
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/analyze-gaps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, ...tcFormData }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.status === 'success' && data.analysis) {
+        setTcGapAnalysis(data.analysis);
+        // Calculate coverage score from gap analysis
+        const s = data.analysis.strengths?.length ?? 0;
+        const g = data.analysis.gaps?.length ?? 0;
+        const raw = Math.round((s / Math.max(s + g, 1)) * 100);
+        setTcCoverageScore(Math.min(raw, 95));
+        setTcStatus('Gap analysis completed.');
+        setToast({ message: 'Gap analysis completed successfully.', type: 'success' });
+      } else {
+        const err = data.detail || data.message || 'Gap analysis failed.';
+        setTcStatus(`Error: ${err}`);
+        setToast({ message: `Analysis Failed: ${err}`, type: 'error' });
+      }
+    } catch {
+      setTcStatus('Error: Unable to analyze requirement gaps.');
+      setToast({ message: 'Network Error: Analysis failed.', type: 'error' });
+    } finally {
+      setTcGapRunning(false);
+    }
+  };
+
+  const handleSaveToLibrary = async () => {
+    if (!tcResults) return;
+    setTcSaveRunning(true);
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/save-library`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: tcResults.testPlanTitle,
+          testCases: tcResults.testCases,
+          issueId: formData.issueId,
+          savedAt: new Date().toISOString(),
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d.status === 'success') {
+        setToast({ message: 'Test cases saved to library.', type: 'success' });
+      } else {
+        setToast({ message: `Save failed: ${d.detail || 'Unknown error'}`, type: 'error' });
+      }
+    } catch {
+      setToast({ message: 'Network Error: Could not reach save-library endpoint.', type: 'error' });
+    } finally {
+      setTcSaveRunning(false);
     }
   };
 
@@ -1500,7 +1572,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Right Side -> Preview Pane (Gap Analysis / Issue Details) */}
-        <div className="preview-pane" style={(tpGapAnalysis || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.5rem', height: 'auto', minHeight: '400px', overflowY: 'auto', maxHeight: '500px' } : {}}>
+        <div className="preview-pane" style={(tpGapAnalysis || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', maxHeight: '500px', overflowY: 'auto' } : {}}>
           {tpGapAnalysis ? (
             <GapAnalysisPreview analysis={tpGapAnalysis} />
           ) : issueDetails ? (
@@ -1538,7 +1610,7 @@ const App: React.FC = () => {
       )}
 
       {currentView === 'testscenarios' && tpScenarios && (
-        <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
+        <div className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
           <div className="card-header" style={{ margin: '0 0 1.5rem 0' }}>
             <div className="card-title">Generated Test Scenarios</div>
           </div>
@@ -1559,7 +1631,7 @@ const App: React.FC = () => {
       )}
 
       {tpStatus ? (
-        <div className={getStatusClass(tpStatus)} style={{ marginTop: '1.5rem', marginBottom: 0, justifyContent: 'space-between' }}>
+        <div className={getStatusClass(tpStatus)} style={{ marginTop: '1rem', marginBottom: 0, justifyContent: 'space-between' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             {renderStatusIcon(tpStatus)} {tpStatus}
           </span>
@@ -1571,7 +1643,7 @@ const App: React.FC = () => {
         </div>
       ) : null}
 
-      <div className="actions-row" style={{borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', marginTop: '1.5rem', justifyContent: 'flex-start'}}>
+      <div className="actions-row" style={{borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start'}}>
         <button className="btn btn-salmon" disabled={tpGapRunning} onClick={async () => {
           setTpGapAnalysis(null);
           setTpDocPath('');
@@ -1647,7 +1719,7 @@ const App: React.FC = () => {
 
         {currentView === 'review' && tcResults && (
            <button className="btn btn-primary" onClick={() => setUploadModalOpen(true)} style={{ marginLeft: '1rem' }}>
-              Upload to {formData.selectedTool}
+              Upload to {uploadTargetTool ?? formData.selectedTool}
            </button>
         )}
       </div>
@@ -1668,6 +1740,141 @@ const App: React.FC = () => {
     if (s === 'Test cases generated.' || s.startsWith('Test cases generated:') || s === 'Gap analysis completed.') return <CheckCircle2 size={18} />;
     if (s.startsWith('Error:')) return <AlertTriangle size={18} />;
     return <Zap size={18} />;
+  };
+
+  const TcActionPanel: React.FC<{
+    tcResults: TestData;
+    tcDocPath: string;
+    tcMdPath: string;
+    coverageScore: number | null;
+    gapAnalysis: Analysis | null;
+    gapRunning: boolean;
+    saveRunning: boolean;
+    selectedTool: string;
+    onPushToZephyr: () => void;
+    onSaveToLibrary: () => void;
+    onSendToReview: () => void;
+  }> = (props) => {
+    const {
+      tcDocPath,
+      tcMdPath,
+      coverageScore,
+      gapAnalysis,
+      gapRunning,
+      saveRunning,
+      onPushToZephyr,
+      onSaveToLibrary,
+      onSendToReview,
+    } = props;
+
+    return (
+      <div className="tc-action-panel">
+        {/* Push to Zephyr */}
+        <button className="btn btn-primary" style={{ width: '100%' }} onClick={onPushToZephyr}>
+          <ArrowUpFromLine size={16} /> Push to Zephyr
+        </button>
+
+        {/* Divider */}
+        <div className="tc-action-panel__divider">Downloads</div>
+
+        {/* Download .md File */}
+        <a
+          className="tc-action-panel__list-item"
+          href={tcMdPath ? `${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tcMdPath)}` : '#'}
+          aria-disabled={!tcMdPath}
+          style={!tcMdPath ? { opacity: 0.4, pointerEvents: 'none', cursor: 'not-allowed' } : {}}
+        >
+          <FileText size={16} /> Download .md File
+        </a>
+
+        {/* Download Excel File */}
+        <a
+          className="tc-action-panel__list-item"
+          href={tcDocPath ? `${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tcDocPath)}` : '#'}
+          aria-disabled={!tcDocPath}
+          style={!tcDocPath ? { opacity: 0.4, pointerEvents: 'none', cursor: 'not-allowed' } : {}}
+        >
+          <Download size={16} /> Download Excel File
+        </a>
+
+        {/* Save to Library */}
+        <button
+          className="btn"
+          onClick={onSaveToLibrary}
+          disabled={saveRunning}
+          style={{ width: '100%', background: '#10b981', color: 'white', marginTop: '0.25rem' }}
+        >
+          {saveRunning ? (
+            <>
+              <RefreshCw size={14} className="spin" /> Saving...
+            </>
+          ) : (
+            <>
+              <Database size={16} /> Save to Library
+            </>
+          )}
+        </button>
+
+        {/* AI Insights Card */}
+        <div className="tc-action-panel__insights">
+          <div className="tc-action-panel__insights-title">AI INSIGHTS</div>
+          {gapRunning ? (
+            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <RefreshCw size={14} className="spin" /> Calculating coverage...
+            </div>
+          ) : coverageScore !== null ? (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                <svg width="64" height="64" viewBox="0 0 64 64" style={{ marginBottom: '0.25rem' }}>
+                  <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="5" />
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="26"
+                    fill="none"
+                    stroke={coverageScore >= 80 ? '#10b981' : coverageScore >= 60 ? '#f59e0b' : '#ef4444'}
+                    strokeWidth="5"
+                    strokeDasharray={`${2 * Math.PI * 26}`}
+                    strokeDashoffset={`${2 * Math.PI * 26 * (1 - coverageScore / 100)}`}
+                    strokeLinecap="round"
+                    transform="rotate(-90 32 32)"
+                  />
+                </svg>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white', position: 'relative', top: '-3rem' }}>
+                  {coverageScore}%
+                </div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.7)', position: 'relative', top: '-3rem' }}>
+                  Coverage
+                </div>
+              </div>
+              {gapAnalysis?.summary && (
+                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', marginTop: '0.5rem', lineHeight: 1.4 }}>
+                  {gapAnalysis.summary}
+                </p>
+              )}
+              {gapAnalysis && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)' }}>
+                  {gapAnalysis.strengths?.length ?? 0} strengths · {gapAnalysis.gaps?.length ?? 0} gaps
+                </div>
+              )}
+            </>
+          ) : (
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', margin: 0 }}>
+              Run gap analysis to see coverage.
+            </p>
+          )}
+        </div>
+
+        {/* Send to AI Review */}
+        <button
+          className="btn btn-outline"
+          onClick={onSendToReview}
+          style={{ width: '100%', borderColor: 'var(--primary)', color: 'var(--primary)' }}
+        >
+          <Shield size={16} /> Send to AI Review
+        </button>
+      </div>
+    );
   };
 
   const renderTestCasesView = () => (
@@ -1726,7 +1933,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Right — Requirement Preview / Gap Analysis */}
-        <div className="preview-pane" style={(tcGapAnalysis || tcResults || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.5rem', height: 'auto', minHeight: '400px', overflowY: 'auto', maxHeight: '500px' } : {}}>
+        <div className="preview-pane" style={(tcGapAnalysis || tcResults || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', maxHeight: '500px', overflowY: 'auto' } : {}}>
           {tcGapAnalysis ? (
             <GapAnalysisPreview analysis={tcGapAnalysis} />
           ) : tcResults ? (
@@ -1760,7 +1967,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Generation Preference */}
-      <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
+      <div className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
         <div className="card-header" style={{ margin: '0 0 1rem 0' }}>
           <div className="card-title" style={{ fontSize: '0.95rem' }}>Generation Preference</div>
           <span className="badge-config" style={{ marginLeft: 'auto' }}>Customize Instructions</span>
@@ -1873,32 +2080,52 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Test Case Results Section */}
+      {/* Test Case Results + Action Panel */}
       {tcResults && (
-        <TestCasesResultsSection 
-          data={tcResults} 
-          tool={formData.selectedTool} 
-          selectedIndices={selectedTcIndices}
-          onToggleSelect={(index) => {
-            setSelectedTcIndices(prev => 
-              prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
-            );
-          }}
-          onSelectAll={(all) => {
-            setSelectedTcIndices(all ? (tcResults?.testCases?.map((_, i) => i) || []) : []);
-          }}
-          onEdit={(tc, index) => {
-            setEditingTcIndex(index);
-            setEditingTc(tc);
-          }}
-          onDelete={handleDeleteTc}
-          onDeleteSelected={handleDeleteSelected}
-        />
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginTop: '1rem' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <TestCasesResultsSection
+              data={tcResults}
+              tool={formData.selectedTool}
+              selectedIndices={selectedTcIndices}
+              onToggleSelect={(index) => {
+                setSelectedTcIndices(prev =>
+                  prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+                );
+              }}
+              onSelectAll={(all) => {
+                setSelectedTcIndices(all ? (tcResults?.testCases?.map((_, i) => i) || []) : []);
+              }}
+              onEdit={(tc, index) => {
+                setEditingTcIndex(index);
+                setEditingTc(tc);
+              }}
+              onDelete={handleDeleteTc}
+              onDeleteSelected={handleDeleteSelected}
+            />
+          </div>
+          <TcActionPanel
+            tcResults={tcResults}
+            tcDocPath={tcDocPath}
+            tcMdPath={tcMdPath}
+            coverageScore={tcCoverageScore}
+            gapAnalysis={tcGapAnalysis}
+            gapRunning={tcGapRunning}
+            saveRunning={tcSaveRunning}
+            selectedTool={formData.selectedTool}
+            onPushToZephyr={() => {
+              setUploadTargetTool('Zephyr');
+              setUploadModalOpen(true);
+            }}
+            onSaveToLibrary={handleSaveToLibrary}
+            onSendToReview={() => setCurrentView('review')}
+          />
+        </div>
       )}
 
       {/* Status bar */}
       {tcStatus ? (
-        <div className={tcStatusClass(tcStatus)} style={{ marginTop: '1.5rem', marginBottom: 0, justifyContent: 'space-between' }}>
+        <div className={tcStatusClass(tcStatus)} style={{ marginTop: '1rem', marginBottom: 0, justifyContent: 'space-between' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             {tcStatusIcon(tcStatus)} {tcStatus}
           </span>
@@ -1916,40 +2143,18 @@ const App: React.FC = () => {
       ) : null}
 
       {/* Actions */}
-      <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', marginTop: '1.5rem', justifyContent: 'flex-start' }}>
-        <button className="btn btn-salmon" disabled={tcGapRunning} onClick={async () => {
+      <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start' }}>
+        <button className="btn btn-salmon" disabled={tcGapRunning} onClick={() => {
           setTcDocPath('');
           setTcResults(null);
-          setTcGapAnalysis(null);
-          setTcGapRunning(true);
-          try {
-            const res = await fetch(`${BACKEND_API_BASE}/analyze-gaps`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...formData, ...tcFormData }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok && data.status === 'success' && data.analysis) {
-              setTcGapAnalysis(data.analysis);
-              setTcStatus('Gap analysis completed.');
-              setToast({ message: 'Gap analysis completed successfully.', type: 'success' });
-            } else {
-              const err = data.detail || data.message || 'Gap analysis failed.';
-              setTcStatus(`Error: ${err}`);
-              setToast({ message: `Analysis Failed: ${err}`, type: 'error' });
-            }
-          } catch {
-            setTcStatus('Error: Unable to analyze requirement gaps.');
-            setToast({ message: 'Network Error: Analysis failed.', type: 'error' });
-          } finally {
-            setTcGapRunning(false);
-          }
+          handleRunGapAnalysis();
         }}>
           {tcGapRunning ? <><RefreshCw size={16} className="spin" /> Analyzing...</> : <><ClipboardList size={16} /> Analyze Gaps First</>}
         </button>
 
         <button className="btn btn-outline red" disabled={tcGenerating} onClick={async () => {
           setTcDocPath('');
+          setTcMdPath('');
           setTcResults(null);
           setTcGapAnalysis(null);
           setTcGenerating(true);
@@ -1957,17 +2162,24 @@ const App: React.FC = () => {
             const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...formData, ...tcFormData }),
+              body: JSON.stringify({
+                ...formData,
+                ...tcFormData,
+                coverageInstructions: 'Ensure 100% requirement coverage: cover happy path, negative, boundary, and edge cases for every stated acceptance criterion.'
+              }),
             });
             const d = await res.json().catch(() => ({}));
             if (d.status === 'success' && d.test_cases) {
               const parts = (d.document_path || '').split(/[\\/]/);
               const filename = parts[parts.length - 1] || 'test_cases.xlsx';
               setTcDocPath(d.document_path || '');
+              setTcMdPath(d.md_path || '');
               setTcResults(d.test_cases);
               const tcCount = d.test_cases?.testCases?.length || 0;
               setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
               setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
+              // Auto-trigger gap analysis for coverage score calculation
+              setTimeout(() => handleRunGapAnalysis(), 300);
             } else if (d.status === 'success' && !d.test_cases) {
               setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
               setToast({ message: 'Error: No test cases generated', type: 'error' });
@@ -2057,7 +2269,7 @@ const App: React.FC = () => {
             maxWidth: '500px',
             width: '90%'
           }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginTop: 0, marginBottom: '1.5rem' }}>Upload to {formData.selectedTool}</h2>
+            <h2 style={{ marginTop: 0, marginBottom: '1.5rem' }}>Upload to {uploadTargetTool ?? formData.selectedTool}</h2>
 
             {formData.selectedTool === 'Jira' && (
               <div style={{ marginBottom: '1rem' }}>
