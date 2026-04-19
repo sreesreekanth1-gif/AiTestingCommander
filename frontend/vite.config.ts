@@ -879,8 +879,8 @@ import sys, json
 from test_cases_engine import TestCasesEngine
 try:
     engine = TestCasesEngine(sys.argv[1])
-    doc_path, test_cases = engine.run_pipeline()
-    print(json.dumps({"status":"success","message":"Test cases generated.","document_path":doc_path,"test_cases":test_cases}))
+    doc_path, md_path, test_cases = engine.run_pipeline()
+    print(json.dumps({"status":"success","message":"Test cases generated.","document_path":doc_path,"md_path":md_path,"test_cases":test_cases}))
 except Exception as e:
     import traceback
     print(json.dumps({"status":"error","detail":str(e),"trace":traceback.format_exc()}))
@@ -953,7 +953,7 @@ import sys, json
 from test_scenarios_engine import TestScenariosEngine
 engine = TestScenariosEngine(sys.argv[1])
 scenarios_result = engine.run_pipeline()
-print(json.dumps({"status":"success","message":"Test scenarios generated.","scenarios":scenarios_result.get("scenarios",[]),"testPlanTitle":scenarios_result.get("testPlanTitle","Test Scenarios")}))
+print(json.dumps({"status":"success","message":"Test scenarios generated.","test_cases":scenarios_result.get("scenarios",[]),"document_path":"","md_path":""}))
 `
         const raw = await runPythonEngine(script, payloadPath)
         const result = JSON.parse(raw.split('\n').filter(l => l.startsWith('{')).pop() || '{}')

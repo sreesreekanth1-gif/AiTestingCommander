@@ -1691,11 +1691,15 @@ const App: React.FC = () => {
             if (d.status === 'success') {
               const parts = (d.document_path || '').split(/[\\/]/);
               const filename = parts[parts.length - 1] || 'document';
-              setTpDocPath(d.document_path || '');
-              if (isReview && d.test_cases) setTcResults(d.test_cases);
+              if (!isScenarios) setTpDocPath(d.document_path || '');
+              if (isReview && d.test_cases) {
+                setTcResults(d.test_cases);
+                setTcMdPath(d.md_path || '');
+              }
               if (isScenarios && d.test_cases) setTpScenarios(d.test_cases);
-              setTpStatus(`${isScenarios ? 'Scenarios' : isReview ? 'Test Cases' : 'Test Plan'} generated: ${filename}`);
-              setToast({ message: `${isScenarios ? 'Scenarios' : isReview ? 'Test Cases' : 'Test Plan'} Generated: ${filename}`, type: 'success' });
+              const statusMsg = isScenarios ? 'Test Scenarios' : isReview ? 'Test Cases' : 'Test Plan';
+              setTpStatus(`${statusMsg} generated successfully`);
+              setToast({ message: `${statusMsg} Generated Successfully`, type: 'success' });
             } else {
               const err = d.detail || d.message || 'Execution error.';
               setTpStatus(`Error: ${err}`);
