@@ -974,6 +974,7 @@ const App: React.FC = () => {
   const [tcMdPath, setTcMdPath] = useState('');
   const [tcCoverageScore, setTcCoverageScore] = useState<number | null>(null);
   const [tcSaveRunning, setTcSaveRunning] = useState(false);
+  const [showTcInsights, setShowTcInsights] = useState(false);
   const [uploadTargetTool, setUploadTargetTool] = useState<string | null>(null);
 
   // ── Test Scenarios state ──────────────────────────────────────────────────
@@ -1755,9 +1756,11 @@ const App: React.FC = () => {
     gapRunning: boolean;
     saveRunning: boolean;
     selectedTool: string;
+    showInsights: boolean;
     onPushToZephyr: () => void;
     onSaveToLibrary: () => void;
     onSendToReview: () => void;
+    onShowInsights: (show: boolean) => void;
   }> = (props) => {
     const {
       tcDocPath,
@@ -1766,9 +1769,11 @@ const App: React.FC = () => {
       gapAnalysis,
       gapRunning,
       saveRunning,
+      showInsights,
       onPushToZephyr,
       onSaveToLibrary,
       onSendToReview,
+      onShowInsights,
     } = props;
 
     return (
@@ -1819,60 +1824,66 @@ const App: React.FC = () => {
           )}
         </button>
 
-        {/* AI Insights Card */}
-        <div className="tc-action-panel__insights">
-          <div className="tc-action-panel__insights-title">AI INSIGHTS</div>
-          {gapRunning ? (
-            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <RefreshCw size={14} className="spin" /> Calculating coverage...
-            </div>
-          ) : coverageScore !== null ? (
-            <>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                <svg width="64" height="64" viewBox="0 0 64 64" style={{ marginBottom: '0.25rem' }}>
-                  <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="5" />
-                  <circle
-                    cx="32"
-                    cy="32"
-                    r="26"
-                    fill="none"
-                    stroke={coverageScore >= 80 ? '#10b981' : coverageScore >= 60 ? '#f59e0b' : '#ef4444'}
-                    strokeWidth="5"
-                    strokeDasharray={`${2 * Math.PI * 26}`}
-                    strokeDashoffset={`${2 * Math.PI * 26 * (1 - coverageScore / 100)}`}
-                    strokeLinecap="round"
-                    transform="rotate(-90 32 32)"
-                  />
-                </svg>
-                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white', position: 'relative', top: '-3rem' }}>
-                  {coverageScore}%
-                </div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.7)', position: 'relative', top: '-3rem' }}>
-                  Coverage
-                </div>
+        {/* AI Insights Card - Only show on right-click */}
+        {showTcInsights && (
+          <div className="tc-action-panel__insights">
+            <div className="tc-action-panel__insights-title">AI INSIGHTS</div>
+            {gapRunning ? (
+              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RefreshCw size={14} className="spin" /> Calculating coverage...
               </div>
-              {gapAnalysis?.summary && (
-                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', marginTop: '0.5rem', lineHeight: 1.4 }}>
-                  {gapAnalysis.summary}
-                </p>
-              )}
-              {gapAnalysis && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)' }}>
-                  {gapAnalysis.strengths?.length ?? 0} strengths · {gapAnalysis.gaps?.length ?? 0} gaps
+            ) : coverageScore !== null ? (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                  <svg width="64" height="64" viewBox="0 0 64 64" style={{ marginBottom: '0.25rem' }}>
+                    <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="5" />
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r="26"
+                      fill="none"
+                      stroke={coverageScore >= 80 ? '#10b981' : coverageScore >= 60 ? '#f59e0b' : '#ef4444'}
+                      strokeWidth="5"
+                      strokeDasharray={`${2 * Math.PI * 26}`}
+                      strokeDashoffset={`${2 * Math.PI * 26 * (1 - coverageScore / 100)}`}
+                      strokeLinecap="round"
+                      transform="rotate(-90 32 32)"
+                    />
+                  </svg>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white', position: 'relative', top: '-3rem' }}>
+                    {coverageScore}%
+                  </div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.7)', position: 'relative', top: '-3rem' }}>
+                    Coverage
+                  </div>
                 </div>
-              )}
-            </>
-          ) : (
-            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', margin: 0 }}>
-              Run gap analysis to see coverage.
-            </p>
-          )}
-        </div>
+                {gapAnalysis?.summary && (
+                  <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', marginTop: '0.5rem', lineHeight: 1.4 }}>
+                    {gapAnalysis.summary}
+                  </p>
+                )}
+                {gapAnalysis && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)' }}>
+                    {gapAnalysis.strengths?.length ?? 0} strengths · {gapAnalysis.gaps?.length ?? 0} gaps
+                  </div>
+                )}
+              </>
+            ) : (
+              <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', margin: 0 }}>
+                Run gap analysis to see coverage.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Send to AI Review */}
         <button
           className="btn btn-outline"
           onClick={onSendToReview}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onShowInsights(true);
+          }}
           style={{ width: '100%', borderColor: 'var(--primary)', color: 'var(--primary)' }}
         >
           <Shield size={16} /> Send to AI Review
@@ -2117,12 +2128,14 @@ const App: React.FC = () => {
             gapRunning={tcGapRunning}
             saveRunning={tcSaveRunning}
             selectedTool={formData.selectedTool}
+            showInsights={showTcInsights}
             onPushToZephyr={() => {
               setUploadTargetTool('Zephyr');
               setUploadModalOpen(true);
             }}
             onSaveToLibrary={handleSaveToLibrary}
             onSendToReview={() => setCurrentView('review')}
+            onShowInsights={setShowTcInsights}
           />
         </div>
       )}

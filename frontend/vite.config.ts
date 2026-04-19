@@ -951,13 +951,36 @@ print(json.dumps({"status":"success","message":"Test plan generated.","document_
         const script = `
 import sys, json
 from test_scenarios_engine import TestScenariosEngine
-engine = TestScenariosEngine(sys.argv[1])
-scenarios_result = engine.run_pipeline()
-print(json.dumps({"status":"success","message":"Test scenarios generated.","test_cases":scenarios_result.get("scenarios",[]),"document_path":"","md_path":""}))
+try:
+    engine = TestScenariosEngine(sys.argv[1])
+    scenarios_result = engine.run_pipeline()
+    print(json.dumps({"status":"success","message":"Test scenarios generated.","test_cases":scenarios_result.get("scenarios",[]),"document_path":"","md_path":""}))
+except Exception as e:
+    import traceback
+    print(json.dumps({"status":"error","detail":str(e),"trace":traceback.format_exc()}))
 `
         const raw = await runPythonEngine(script, payloadPath)
-        const result = JSON.parse(raw.split('\n').filter(l => l.startsWith('{')).pop() || '{}')
-        sendJson(res, 200, result)
+        const lines = raw.split('\n').filter(l => l.trim().startsWith('{'))
+        const jsonLine = lines.length > 0 ? lines[lines.length - 1] : null
+
+        if (!jsonLine) {
+          sendJson(res, 500, { detail: `No valid JSON in Python output: ${raw.slice(0, 500)}` })
+          return
+        }
+
+        let result: any
+        try {
+          result = JSON.parse(jsonLine)
+        } catch (parseErr: any) {
+          sendJson(res, 500, { detail: `Failed to parse Python output: ${parseErr.message}` })
+          return
+        }
+
+        if (result.status === 'error') {
+          sendJson(res, 500, { detail: result.detail || 'Unknown error in test scenario generation' })
+        } else {
+          sendJson(res, 200, result)
+        }
       } catch (error: any) {
         sendJson(res, 500, { detail: error?.message || 'Test scenario generation failed' })
       }

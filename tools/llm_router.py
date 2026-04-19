@@ -253,7 +253,7 @@ def _call_claude(api_key: str, model: str, messages: list) -> str:
             "Content-Type": "application/json"
         },
         json={
-            "model": model or "claude-sonnet-4-6",
+            "model": model or "claude-sonnet-4-20250514",
             "max_tokens": 16384,
             "system": system_msg,
             "messages": user_msgs,
@@ -261,6 +261,14 @@ def _call_claude(api_key: str, model: str, messages: list) -> str:
         },
         timeout=120
     )
+    if resp.status_code == 400:
+        try:
+            err_detail = resp.json().get("error", {}).get("message", resp.text[:300])
+        except Exception:
+            err_detail = resp.text[:300]
+        raise requests.exceptions.HTTPError(
+            f"400 Bad Request from Anthropic: {err_detail}", response=resp
+        )
     resp.raise_for_status()
     return resp.json()["content"][0]["text"]
 
@@ -312,7 +320,7 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "")
 
     # Provider-specific context limits (approximate safe char limits)
     # GROQ free-tier enforces strict payload size — keep conservatively low
-    provider_limits = {"GROQ": 3500, "Grok": 32000, "Ollama": 16000, "OpenRouter": 64000}
+    provider_limits = {"GROQ": 3500, "Grok": 32000, "Claude": 100000, "Anthropic": 100000, "Ollama": 16000, "OpenRouter": 64000}
     max_chars = provider_limits.get(provider, 100000)
     context_text = _truncate_context(context_text, max_chars)
 
@@ -326,7 +334,7 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "")
     messages = _build_messages(context_text)
 
     # Dynamic payload guard: if JSON payload exceeds safe threshold, shrink context further
-    MAX_PAYLOAD_CHARS = {"GROQ": 20000, "Grok": 200000, "Ollama": 100000, "OpenRouter": 200000}
+    MAX_PAYLOAD_CHARS = {"GROQ": 20000, "Grok": 200000, "Claude": 500000, "Anthropic": 500000, "Ollama": 100000, "OpenRouter": 200000}
     max_payload = MAX_PAYLOAD_CHARS.get(provider, 500000)
     payload_size = len(json.dumps(messages))
     if payload_size > max_payload:
