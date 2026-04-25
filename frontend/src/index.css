@@ -369,8 +369,8 @@ body {
 /* Two column generation layout */
 .twin-col {
   display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 1.25rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
   flex: 1;
   min-height: 0;
 }
@@ -383,7 +383,8 @@ body {
   align-items: center;
   justify-content: center;
   flex: 1;
-  min-height: 180px;
+  min-height: 280px;
+  max-height: 500px;
   background: var(--bg-card);
   text-align: center;
   color: var(--text-muted);

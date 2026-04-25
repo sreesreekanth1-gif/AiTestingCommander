@@ -1864,9 +1864,10 @@ const App: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: '1rem 0' }}>OR PASTE BELOW</div>
+            <div className="tc-or-divider">OR PASTE BELOW</div>
             <div className="form-group">
-              <textarea className="form-control" rows={3} placeholder="Provide manual contextual details here for the LLM payload..." />
+              <label>Manual Requirements</label>
+              <textarea className="form-control" rows={5} placeholder="Paste your requirements, user stories, acceptance criteria, or condition details here..." style={{ marginBottom: 0 }} />
             </div>
           </div>
 
@@ -1881,7 +1882,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Right Side -> Preview Pane (Gap Analysis / Issue Details) */}
-        <div className="preview-pane" style={(tpGapAnalysis || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', maxHeight: '500px', overflowY: 'auto' } : {}}>
+        <div className="preview-pane" style={(tpGapAnalysis || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', overflowY: 'auto' } : {}}>
           {tpGapAnalysis ? (
             <GapAnalysisPreview analysis={tpGapAnalysis} />
           ) : issueDetails ? (
@@ -2323,7 +2324,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Right — Requirement Preview / Gap Analysis */}
-        <div className="preview-pane" style={(tcGapAnalysis || tcResults || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', maxHeight: '500px', overflowY: 'auto' } : {}}>
+        <div className="preview-pane" style={(tcGapAnalysis || tcResults || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', overflowY: 'auto' } : {}}>
           {tcGapAnalysis ? (
             <GapAnalysisPreview analysis={tcGapAnalysis} />
           ) : tcResults ? (
