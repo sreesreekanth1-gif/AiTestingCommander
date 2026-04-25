@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import {
   ChevronDown, Eye, EyeOff, CheckCircle2, AlertCircle, Clock,
   XCircle, Settings, Upload, Save, Loader, Check
@@ -20,8 +20,38 @@ function pickStatus() {
   return STATUS_POOL[Math.floor(Math.random() * STATUS_POOL.length)];
 }
 
-function validateForm(form) {
-  const errs = {};
+interface FormData {
+  apiToken: string;
+  baseUrl: string;
+  releaseName: string;
+}
+
+interface ValidationErrors {
+  [key: string]: string;
+}
+
+interface TestCase {
+  id: string;
+  name: string;
+  status?: string;
+}
+
+interface TCResult {
+  testCases: Array<{
+    testCaseId: string;
+    testCaseTitle: string;
+  }>;
+}
+
+interface ZephyrUploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  tcResults?: TCResult;
+  selectedIndices?: number[];
+}
+
+function validateForm(form: FormData): ValidationErrors {
+  const errs: ValidationErrors = {};
   if (!form.apiToken.trim()) errs.apiToken = 'API Token is required';
   if (!form.baseUrl.trim()) {
     errs.baseUrl = 'Base URL is required';
@@ -32,26 +62,26 @@ function validateForm(form) {
   return errs;
 }
 
-export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selectedIndices = [] }) {
-  const [view, setView] = useState('connection');
-  const [form, setForm] = useState({ apiToken: '', baseUrl: '', releaseName: '' });
-  const [errors, setErrors] = useState({});
+export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selectedIndices = [] }: ZephyrUploadModalProps): ReactNode {
+  const [view, setView] = useState<'connection' | 'uploading' | 'results'>('connection');
+  const [form, setForm] = useState<FormData>({ apiToken: '', baseUrl: '', releaseName: '' });
+  const [errors, setErrors] = useState<ValidationErrors>({});
   const [showToken, setShowToken] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState<'verified' | 'failed' | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState(null);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
-  const [savedSettings, setSavedSettings] = useState(null);
+  const [savedSettings, setSavedSettings] = useState<FormData | null>(null);
 
-  const [tcList, setTcList] = useState([]);
+  const [tcList, setTcList] = useState<TestCase[]>([]);
   const [progress, setProgress] = useState(0);
   const [currentAction, setCurrentAction] = useState('');
   const [stats, setStats] = useState({ success: 0, failed: 0, warning: 0, skipped: 0 });
-  const [failedCases, setFailedCases] = useState([]);
-  const [selectedFailed, setSelectedFailed] = useState(new Set());
+  const [failedCases, setFailedCases] = useState<TestCase[]>([]);
+  const [selectedFailed, setSelectedFailed] = useState<Set<string>>(new Set());
   const [cancelConfirm, setCancelConfirm] = useState(false);
 
-  const uploadRef = useRef(null);
+  const uploadRef = useRef<NodeJS.Timeout | null>(null);
   const prevStatsRef = useRef({ success: 0, failed: 0, warning: 0, skipped: 0 });
 
   useEffect(() => {
@@ -78,8 +108,8 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
 
   if (!isOpen) return null;
 
-  const buildCaseList = (overrideIds) => {
-    let base;
+  const buildCaseList = (overrideIds?: Set<string>) => {
+    let base: TestCase[];
     if (tcResults?.testCases?.length) {
       const source = selectedIndices.length > 0
         ? tcResults.testCases.filter((_, i) => selectedIndices.includes(i))
@@ -91,7 +121,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
     return overrideIds ? base.filter(tc => overrideIds.has(tc.id)) : base;
   };
 
-  const handleFieldChange = (field, value) => {
+  const handleFieldChange = (field: keyof FormData, value: string) => {
     setForm(f => ({ ...f, [field]: value }));
     if (errors[field]) setErrors(e => { const n = { ...e }; delete n[field]; return n; });
   };
@@ -116,7 +146,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
     setTimeout(() => setSaveFeedback(null), 2000);
   };
 
-  const startUpload = (retryIds) => {
+  const startUpload = (retryIds?: Set<string>) => {
     const cases = buildCaseList(retryIds);
     if (!cases.length) return;
     const list = cases.map(tc => ({ ...tc, status: 'pending' }));
@@ -138,7 +168,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
     const tick = () => {
       if (i >= total) {
         const newStats = { success: 0, failed: 0, warning: 0, skipped: 0 };
-        const failed = [];
+        const failed: TestCase[] = [];
         results.forEach(tc => {
           if (tc.status === 'Success') newStats.success++;
           else if (tc.status === 'Failed') { newStats.failed++; failed.push({ ...tc }); }
@@ -188,7 +218,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
     }
   };
 
-  const toggleSelectFailed = (id) => {
+  const toggleSelectFailed = (id: string) => {
     setSelectedFailed(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -196,7 +226,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
     });
   };
 
-  const toggleSelectAll = (checked) => {
+  const toggleSelectAll = (checked: boolean) => {
     setSelectedFailed(checked ? new Set(failedCases.map(tc => tc.id)) : new Set());
   };
 
@@ -204,9 +234,9 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
 
   const S = {
     overlay: {
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      position: 'fixed' as const, top: 0, left: 0, right: 0, bottom: 0,
       backgroundColor: 'rgba(0,0,0,0.6)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      display: 'flex' as const, alignItems: 'center' as const, justifyContent: 'center' as const,
       zIndex: 1001,
     },
     dialog: {
@@ -215,33 +245,33 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
       maxWidth: view === 'results' ? '860px' : '680px',
       width: '95%',
       maxHeight: '90vh',
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
+      display: 'flex' as const,
+      flexDirection: 'column' as const,
+      overflow: 'hidden' as const,
       boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
       transition: 'max-width 0.2s ease',
     },
     header: {
       padding: '1.1rem 1.5rem',
       borderBottom: '1px solid var(--border-color)',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      display: 'flex' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const,
       flexShrink: 0,
     },
     headerTitle: {
-      display: 'flex', alignItems: 'center', gap: '0.5rem',
+      display: 'flex' as const, alignItems: 'center' as const, gap: '0.5rem',
       fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-main)',
     },
     closeBtn: {
-      background: 'none', border: 'none', cursor: 'pointer',
+      background: 'none', border: 'none', cursor: 'pointer' as const,
       color: 'var(--text-muted)', padding: '4px', borderRadius: '4px',
-      display: 'flex', alignItems: 'center',
+      display: 'flex' as const, alignItems: 'center' as const,
     },
-    body: { flex: 1, overflowY: 'auto', padding: '1.5rem' },
+    body: { flex: 1, overflowY: 'auto' as const, padding: '1.5rem' },
     label: {
-      display: 'block', marginBottom: '0.35rem',
+      display: 'block' as const, marginBottom: '0.35rem',
       fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-main)',
     },
-    input: (hasError) => ({
+    input: (hasError: boolean) => ({
       width: '100%', padding: '0.55rem 0.75rem',
       border: `1px solid ${hasError ? '#ef4444' : 'var(--border-color)'}`,
       borderRadius: '6px', fontSize: '0.9rem',
@@ -251,29 +281,29 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
     }),
     errText: { color: '#ef4444', fontSize: '0.76rem', marginTop: '0.25rem' },
     fieldWrap: { marginBottom: '0.9rem' },
-    btnPrimary: (disabled) => ({
+    btnPrimary: (disabled: boolean) => ({
       padding: '0.6rem 1.1rem',
       backgroundColor: disabled ? 'var(--text-muted)' : 'var(--primary)',
       color: 'white', border: 'none', borderRadius: '6px',
-      cursor: disabled ? 'not-allowed' : 'pointer',
+      cursor: disabled ? 'not-allowed' : 'pointer' as const,
       fontWeight: 600, fontSize: '0.85rem',
-      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+      display: 'inline-flex' as const, alignItems: 'center' as const, gap: '0.4rem',
       opacity: disabled ? 0.6 : 1,
     }),
     btnOutline: {
       padding: '0.6rem 1.1rem',
       backgroundColor: 'transparent',
       border: '1px solid var(--border-color)',
-      color: 'var(--text-main)', borderRadius: '6px', cursor: 'pointer',
+      color: 'var(--text-main)', borderRadius: '6px', cursor: 'pointer' as const,
       fontWeight: 600, fontSize: '0.85rem',
-      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+      display: 'inline-flex' as const, alignItems: 'center' as const, gap: '0.4rem',
     },
     btnDanger: {
       padding: '0.55rem 1rem',
       backgroundColor: '#ef4444', color: 'white',
-      border: 'none', borderRadius: '6px', cursor: 'pointer',
+      border: 'none', borderRadius: '6px', cursor: 'pointer' as const,
       fontWeight: 600, fontSize: '0.82rem',
-      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+      display: 'inline-flex' as const, alignItems: 'center' as const, gap: '0.4rem',
     },
   };
 
@@ -288,19 +318,19 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
     pending:   { bg: 'var(--bg-card)',        color: 'var(--text-muted)', border: 'var(--border-color)' },
   };
 
-  const badgeStyle = (status) => {
-    const cfg = STATUS_CFG[status] || STATUS_CFG.pending;
+  const badgeStyle = (status: string) => {
+    const cfg = STATUS_CFG[status as keyof typeof STATUS_CFG] || STATUS_CFG.pending;
     return {
-      display: 'inline-flex', alignItems: 'center', gap: '3px',
+      display: 'inline-flex' as const, alignItems: 'center' as const, gap: '3px',
       padding: '2px 8px', borderRadius: '9999px',
       fontSize: '0.72rem', fontWeight: 700,
       backgroundColor: cfg.bg, color: cfg.color,
       border: `1px solid ${cfg.border}`,
-      whiteSpace: 'nowrap',
+      whiteSpace: 'nowrap' as const,
     };
   };
 
-  const StatusIcon = ({ status, size = 14 }) => {
+  const StatusIcon = ({ status, size = 14 }: { status: string; size?: number }) => {
     const cls = 'spin';
     if (status === 'Success')   return <CheckCircle2 size={size} style={{ color: '#16a34a', flexShrink: 0 }} />;
     if (status === 'Failed')    return <XCircle      size={size} style={{ color: '#dc2626', flexShrink: 0 }} />;
@@ -329,13 +359,13 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
               value={form.apiToken}
               onChange={e => handleFieldChange('apiToken', e.target.value)}
               placeholder="Enter your Zephyr API token"
-              style={{ ...S.input(!!errors.apiToken), paddingRight: '2.6rem' }}
+              style={{ ...S.input(!!errors.apiToken), paddingRight: '2.6rem' } as React.CSSProperties}
               autoComplete="new-password"
             />
             <button
               type="button"
               onClick={() => setShowToken(v => !v)}
-              style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '2px' }}
+              style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '2px' } as React.CSSProperties}
               title={showToken ? 'Hide token' : 'Show token'}
             >
               {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -352,7 +382,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
             value={form.baseUrl}
             onChange={e => handleFieldChange('baseUrl', e.target.value)}
             placeholder="https://yourorg.atlassian.net"
-            style={S.input(!!errors.baseUrl)}
+            style={S.input(!!errors.baseUrl) as React.CSSProperties}
           />
           {errors.baseUrl && <p style={S.errText}>{errors.baseUrl}</p>}
         </div>
@@ -365,7 +395,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
             value={form.releaseName}
             onChange={e => handleFieldChange('releaseName', e.target.value)}
             placeholder="e.g. v2.4.0 – Sprint 12"
-            style={S.input(!!errors.releaseName)}
+            style={S.input(!!errors.releaseName) as React.CSSProperties}
           />
           {errors.releaseName && <p style={S.errText}>{errors.releaseName}</p>}
         </div>
@@ -389,20 +419,20 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
 
         {/* Buttons row */}
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
-          <button style={S.btnOutline} onClick={handleVerify} disabled={verifying}>
+          <button style={S.btnOutline as React.CSSProperties} onClick={handleVerify} disabled={verifying}>
             {verifying
               ? <><Loader size={13} className="spin" /> Verifying...</>
               : <><CheckCircle2 size={13} /> Verify Connection</>}
           </button>
-          <button style={S.btnOutline} onClick={handleSave}>
+          <button style={S.btnOutline as React.CSSProperties} onClick={handleSave}>
             <Save size={13} /> Save Details
           </button>
         </div>
 
         {/* Upload CTA */}
         <button
-          style={{ ...S.btnPrimary(false), width: '100%', justifyContent: 'center', padding: '0.7rem 1.1rem' }}
-          onClick={() => startUpload(null)}
+          style={{ ...S.btnPrimary(false), width: '100%', justifyContent: 'center', padding: '0.7rem 1.1rem' } as React.CSSProperties}
+          onClick={() => startUpload()}
         >
           <Upload size={15} />
           Start Upload
@@ -416,7 +446,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
       <div style={{ width: settingsPanelOpen ? '200px' : '32px', flexShrink: 0, transition: 'width 0.25s ease', overflow: 'hidden', borderLeft: '1px solid var(--border-color)', paddingLeft: settingsPanelOpen ? '1rem' : '0', paddingTop: '0' }}>
         <button
           onClick={() => setSettingsPanelOpen(v => !v)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0', marginLeft: settingsPanelOpen ? 0 : '4px', whiteSpace: 'nowrap' }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0', marginLeft: settingsPanelOpen ? 0 : '4px', whiteSpace: 'nowrap' } as React.CSSProperties}
           title="Toggle saved settings"
         >
           <Settings size={17} />
@@ -487,8 +517,8 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
               <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: '0.82rem' }}>{tc.id}</span>
               <span style={{ color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tc.name}</span>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}>
-                <StatusIcon status={tc.status} size={13} />
-                <span style={badgeStyle(tc.status)}>{tc.status}</span>
+                <StatusIcon status={tc.status || ''} size={13} />
+                <span style={badgeStyle(tc.status || '')}>{tc.status}</span>
               </div>
             </div>
           ))}
@@ -501,12 +531,12 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
           <span style={{ fontSize: '0.85rem', flex: 1, color: 'var(--text-main)' }}>
             Cancel the upload? Current progress will be saved.
           </span>
-          <button style={S.btnDanger} onClick={handleCancel}>Confirm Cancel</button>
-          <button style={S.btnOutline} onClick={() => setCancelConfirm(false)}>Continue Uploading</button>
+          <button style={S.btnDanger as React.CSSProperties} onClick={handleCancel}>Confirm Cancel</button>
+          <button style={S.btnOutline as React.CSSProperties} onClick={() => setCancelConfirm(false)}>Continue Uploading</button>
         </div>
       ) : (
         <button
-          style={{ ...S.btnOutline, color: '#dc2626', borderColor: '#fca5a5' }}
+          style={{ ...S.btnOutline, color: '#dc2626', borderColor: '#fca5a5' } as React.CSSProperties}
           onClick={handleCancel}
         >
           <XCircle size={14} /> Cancel Upload
@@ -585,7 +615,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
                       {tc.status === 'Failed' ? 'Upload rejected by server' : 'Uploaded with validation warnings'}
                     </span>
                     <div style={{ display: 'flex', justifyContent: 'center' }}>
-                      <span style={badgeStyle(tc.status)}>{tc.status}</span>
+                      <span style={badgeStyle(tc.status || '')}>{tc.status}</span>
                     </div>
                   </div>
                 ))}
@@ -598,7 +628,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {failedCases.length > 0 && (
             <button
-              style={S.btnPrimary(selectedFailed.size === 0)}
+              style={S.btnPrimary(selectedFailed.size === 0) as React.CSSProperties}
               onClick={() => selectedFailed.size > 0 && startUpload(selectedFailed)}
               disabled={selectedFailed.size === 0}
             >
@@ -607,7 +637,7 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
             </button>
           )}
           <button
-            style={S.btnOutline}
+            style={S.btnOutline as React.CSSProperties}
             onClick={() => { setView('connection'); setConnectionStatus(null); }}
           >
             Back to Connection
@@ -619,14 +649,14 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
 
   // ─── Main render ──────────────────────────────────────────────────────────
 
-  const VIEW_LABELS = { connection: null, uploading: 'Uploading…', results: 'Results' };
+  const VIEW_LABELS: Record<string, string | null> = { connection: null, uploading: 'Uploading…', results: 'Results' };
 
   return (
-    <div style={S.overlay} onClick={onClose}>
-      <div style={S.dialog} onClick={e => e.stopPropagation()}>
+    <div style={S.overlay as React.CSSProperties} onClick={onClose}>
+      <div style={S.dialog as React.CSSProperties} onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div style={S.header}>
-          <div style={S.headerTitle}>
+        <div style={S.header as React.CSSProperties}>
+          <div style={S.headerTitle as React.CSSProperties}>
             <Upload size={19} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             Upload to Zephyr
             {VIEW_LABELS[view] && (
@@ -635,13 +665,13 @@ export default function ZephyrUploadModal({ isOpen, onClose, tcResults, selected
               </span>
             )}
           </div>
-          <button style={S.closeBtn} onClick={onClose} title="Close">
+          <button style={S.closeBtn as React.CSSProperties} onClick={onClose} title="Close">
             <XCircle size={18} />
           </button>
         </div>
 
         {/* Body */}
-        <div style={S.body}>
+        <div style={S.body as React.CSSProperties}>
           {view === 'connection' && renderConnection()}
           {view === 'uploading' && renderUploading()}
           {view === 'results'   && renderResults()}

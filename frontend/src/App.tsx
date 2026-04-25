@@ -2621,7 +2621,7 @@ const App: React.FC = () => {
             // Progress / neutral state
             <div className={tcStatusClass(tcStatus)} style={{
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: '0.75rem',
               padding: '1rem',
               borderRadius: '8px',
