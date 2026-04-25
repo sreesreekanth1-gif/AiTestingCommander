@@ -213,6 +213,8 @@ body {
   border-radius: 8px;
   padding: 1.25rem;
   box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  display: flex;
+  flex-direction: column;
 }
 
 .card-header {
@@ -313,7 +315,8 @@ body {
 .actions-row {
   display: flex;
   gap: 1rem;
-  margin-top: 1rem;
+  margin-top: auto;
+  padding-top: 1rem;
 }
 
 .btn {

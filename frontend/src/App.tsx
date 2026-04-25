@@ -9,6 +9,7 @@ import {
   ArrowUpFromLine, ArrowDownFromLine, Eraser
 } from 'lucide-react';
 import './index.css';
+import ZephyrUploadModal from './components/ZephyrUploadModal';
 
 const BACKEND_API_BASE = '/api';
 
@@ -18,20 +19,96 @@ interface PlatformConfig {
 }
 
 const PLATFORM_ISSUE_ID: Record<string, PlatformConfig> = {
-  Jira:     { label: 'Jira Issue ID',             placeholder: 'e.g. PROJ-1234' },
-  ADO:      { label: 'ADO Work Item ID',          placeholder: 'e.g. 1234' },
-  "X-Ray":  { label: 'X-Ray Test ID',            placeholder: 'e.g. TEST-001' },
-  TestRail: { label: 'TestRail Case ID',          placeholder: 'e.g. C1234' },
-  QTest:    { label: 'QTest Requirement ID',      placeholder: 'e.g. 12/456  (projectId/reqId)' },
+  Jira: { label: 'Jira Issue ID', placeholder: 'e.g. PROJ-1234' },
+  ADO: { label: 'ADO Work Item ID', placeholder: 'e.g. 1234' },
+  "X-Ray": { label: 'X-Ray Test ID', placeholder: 'e.g. TEST-001' },
+  TestRail: { label: 'TestRail Case ID', placeholder: 'e.g. C1234' },
+  QTest: { label: 'QTest Requirement ID', placeholder: 'e.g. 12/456  (projectId/reqId)' },
+  Zephyr: { label: 'Zephyr Test ID', placeholder: 'e.g. TEST-001' },
 };
 
 const TOOL_COLUMN_LABEL: Record<string, string> = {
-  Jira:     'Jira ID',
-  ADO:      'ADO Work Item ID',
-  'X-Ray':  'X-Ray Test ID',
+  Jira: 'Jira ID',
+  ADO: 'ADO Work Item ID',
+  'X-Ray': 'X-Ray Test ID',
   TestRail: 'TestRail Case ID',
-  QTest:    'QTest ID',
+  QTest: 'QTest ID',
+  Zephyr: 'Zephyr Test ID',
 };
+
+interface ALMToolConfig {
+  urlLabel: string;
+  urlPlaceholder: string;
+  showUsername: boolean;
+  usernameLabel: string;
+  tokenLabel: string;
+  tokenPlaceholder: string;
+  hint: string;
+}
+
+const ALM_TOOL_CONFIG: Record<string, ALMToolConfig> = {
+  Jira: {
+    urlLabel:         'Jira Base URL',
+    urlPlaceholder:   'https://yourorg.atlassian.net',
+    showUsername:     true,
+    usernameLabel:    'Email',
+    tokenLabel:       'API Token',
+    tokenPlaceholder: 'Your Jira API token',
+    hint:             'Generate an API token at https://id.atlassian.com/manage-profile/security/api-tokens',
+  },
+  ADO: {
+    urlLabel:         'Organization URL',
+    urlPlaceholder:   'https://dev.azure.com/yourorg',
+    showUsername:     false,
+    usernameLabel:    '',
+    tokenLabel:       'Personal Access Token',
+    tokenPlaceholder: 'PAT with full permissions',
+    hint:             'Create a PAT in Azure DevOps under User Settings → Personal Access Tokens.',
+  },
+  'X-Ray': {
+    urlLabel:         'Jira Base URL',
+    urlPlaceholder:   'https://yourorg.atlassian.net',
+    showUsername:     true,
+    usernameLabel:    'Email',
+    tokenLabel:       'API Token',
+    tokenPlaceholder: 'Your Jira API token',
+    hint:             'X-Ray Cloud uses your Jira credentials. Ensure the account has X-Ray project permissions.',
+  },
+  TestRail: {
+    urlLabel:         'TestRail URL',
+    urlPlaceholder:   'https://yourorg.testrail.io',
+    showUsername:     true,
+    usernameLabel:    'Email / Username',
+    tokenLabel:       'API Key / Password',
+    tokenPlaceholder: 'TestRail API key or password',
+    hint:             'Generate an API key in TestRail under My Settings → API Keys.',
+  },
+  QTest: {
+    urlLabel:         'QTest URL',
+    urlPlaceholder:   'https://yourorg.qtestnet.com',
+    showUsername:     false,
+    usernameLabel:    '',
+    tokenLabel:       'Bearer Token',
+    tokenPlaceholder: 'Your QTest bearer token',
+    hint:             'Find the Bearer Token in QTest Manager under Resources → API & SDK.',
+  },
+  Zephyr: {
+    urlLabel:         'Jira Base URL',
+    urlPlaceholder:   'https://yourorg.atlassian.net',
+    showUsername:     true,
+    usernameLabel:    'Email',
+    tokenLabel:       'API Token',
+    tokenPlaceholder: 'Your Jira API token',
+    hint:             'Zephyr Scale uses your Jira credentials. Ensure your account has Zephyr Scale project permissions.',
+  },
+};
+
+const getAlmToolConfig = (tool: string): ALMToolConfig =>
+  ALM_TOOL_CONFIG[tool] || {
+    urlLabel: 'Workspace URL', urlPlaceholder: '', showUsername: true,
+    usernameLabel: 'Username', tokenLabel: 'Token', tokenPlaceholder: '',
+    hint: '',
+  };
 
 const getPlatformIssueId = (tool: string): PlatformConfig =>
   PLATFORM_ISSUE_ID[tool] || { label: `${tool} Issue ID`, placeholder: 'e.g. ISSUE-001' };
@@ -95,7 +172,7 @@ const STEPS: Step[] = [
   { id: 'testplan', label: 'Create Test Plan', icon: FileText },
   { id: 'testcases', label: 'Create Test Cases', icon: ClipboardList },
   { id: 'testscenarios', label: 'Create Test Scenarios', icon: Box },
-  { id: 'review', label: 'Review Test Cases', icon: Shield },
+  // { id: 'review', label: 'Review Test Cases', icon: Shield },
   { id: 'automation', label: 'Automation', icon: Zap, hasArrow: true },
   { id: 'github', label: 'GitHub', icon: GitBranch },
   { id: 'githubcicd', label: 'GitHub CICD', icon: GitBranch },
@@ -144,7 +221,7 @@ const GapAnalysisPreview: React.FC<{ analysis: Analysis }> = ({ analysis }) => {
       (navigator.clipboard as any).write([
         new ClipboardItem({
           'text/plain': new Blob([plain], { type: 'text/plain' }),
-          'text/html':  new Blob([html],  { type: 'text/html' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
         }),
       ]).then(() => {
         setCopied(true);
@@ -234,7 +311,7 @@ const TcCopyButton: React.FC<{ data: TestData }> = ({ data }) => {
     data?.testPlanTitle || 'Generated Test Cases',
     '',
     ...cases.map((tc, i) => {
-      const stepsText = Array.isArray(tc.testSteps) 
+      const stepsText = Array.isArray(tc.testSteps)
         ? tc.testSteps.map(s => s && typeof s === 'object' ? `${s.stepNumber}. ${s.action} | Expected: ${s.expected}` : String(s)).join('\n      ')
         : tc.testSteps;
       return [
@@ -263,8 +340,8 @@ const TcCopyButton: React.FC<{ data: TestData }> = ({ data }) => {
 };
 
 
-const TestCasesPreview: React.FC<{ 
-  data: TestData; 
+const TestCasesPreview: React.FC<{
+  data: TestData;
   tool: string;
   selectedIndices?: number[];
   onToggleSelect?: (index: number) => void;
@@ -286,7 +363,7 @@ const TestCasesPreview: React.FC<{
         const titleMatch = (tc.testCaseTitle || "").toLowerCase().includes(lowerSearch);
         const precondMatch = (tc.preconditions || "").toLowerCase().includes(lowerSearch);
         const stepsMatch = Array.isArray(tc.testSteps) && tc.testSteps.some(s => (s?.action || "").toLowerCase().includes(lowerSearch));
-        
+
         const matchesSearch = !searchText || titleMatch || precondMatch || stepsMatch;
         const matchesPriority = priorityFilter === 'All' || tc.priority === priorityFilter;
         const matchesType = typeFilter === 'All' || tc.testType === typeFilter;
@@ -295,7 +372,7 @@ const TestCasesPreview: React.FC<{
       });
   }, [cases, searchText, priorityFilter, typeFilter]);
 
-  const allSelected = filteredItems.length > 0 && 
+  const allSelected = filteredItems.length > 0 &&
     filteredItems.every(({ originalIndex }) => selectedIndices.includes(originalIndex));
 
   const handleClearFilters = () => {
@@ -313,51 +390,51 @@ const TestCasesPreview: React.FC<{
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div className="filter-controls-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', minHeight: '40px', width: '100%' }}>
-             {onSelectAll ? (
-               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                 <input 
-                   type="checkbox" 
-                   checked={allSelected} 
-                   onChange={(e) => onSelectAll(e.target.checked)} 
-                   style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                 />
-                 <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                   Select All ({filteredItems.length} cases)
-                 </span>
-               </div>
-             ) : <div />}
-             
-             <div className="filter-controls-right" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                {hasActiveFilters && (
-                  <button className="filter-clear-btn" onClick={handleClearFilters}>
-                    <Eraser size={14} /> Clear
-                  </button>
-                )}
-                <button 
-                  className={`filter-toggle-btn ${isFilterVisible ? 'active' : ''}`}
-                  onClick={() => setIsFilterVisible(!isFilterVisible)}
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  <ListFilter size={14} /> Filter
+            {onSelectAll ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={(e) => onSelectAll(e.target.checked)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Select All ({filteredItems.length} cases)
+                </span>
+              </div>
+            ) : <div />}
+
+            <div className="filter-controls-right" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              {hasActiveFilters && (
+                <button className="filter-clear-btn" onClick={handleClearFilters}>
+                  <Eraser size={14} /> Clear
                 </button>
-             </div>
+              )}
+              <button
+                className={`filter-toggle-btn ${isFilterVisible ? 'active' : ''}`}
+                onClick={() => setIsFilterVisible(!isFilterVisible)}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                <ListFilter size={14} /> Filter
+              </button>
+            </div>
           </div>
 
           {isFilterVisible && (
             <div className="filter-expand-panel" style={{ width: '100%', boxSizing: 'border-box' }}>
               <div className="filter-input-wrapper">
                 <Search size={14} className="filter-input-icon" />
-                <input 
-                  type="text" 
-                  placeholder="Search cases..." 
+                <input
+                  type="text"
+                  placeholder="Search cases..."
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   className="filter-input-field"
                 />
               </div>
-              
-              <select 
-                value={priorityFilter} 
+
+              <select
+                value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value)}
                 className="filter-select-field"
               >
@@ -367,8 +444,8 @@ const TestCasesPreview: React.FC<{
                 <option value="Low">Low</option>
               </select>
 
-              <select 
-                value={typeFilter} 
+              <select
+                value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
                 className="filter-select-field"
               >
@@ -385,80 +462,80 @@ const TestCasesPreview: React.FC<{
 
           <div className="test-cases-scroll-container" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: '550px', paddingRight: '0.5rem', paddingBottom: '0.5rem' }}>
             {filteredItems.map(({ tc, originalIndex }) => (
-              <div key={originalIndex} style={{ 
-              border: '1px solid var(--border-color)', 
-              borderRadius: '6px', 
-              padding: '0.85rem', 
-              background: 'var(--bg-main)',
-              position: 'relative' 
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                   {onToggleSelect && (
-                     <input 
-                       type="checkbox" 
-                       checked={selectedIndices.includes(originalIndex)} 
-                       onChange={() => onToggleSelect(originalIndex)} 
-                       style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                     />
-                   )}
-                   <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    {onEdit && (
-                      <button 
-                        onClick={() => onEdit(tc, originalIndex)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '2px' }}
-                        title="Edit Test Case"
-                      >
-                        <Pencil size={16} />
-                      </button>
+              <div key={originalIndex} style={{
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                padding: '0.85rem',
+                background: 'var(--bg-main)',
+                position: 'relative'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    {onToggleSelect && (
+                      <input
+                        type="checkbox"
+                        checked={selectedIndices.includes(originalIndex)}
+                        onChange={() => onToggleSelect(originalIndex)}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
                     )}
-                    {onDelete && (
-                      <button 
-                        onClick={() => onDelete(originalIndex)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px' }}
-                        title="Delete Test Case"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                   </div>
-                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)' }}>
-                     [{tc.testCaseId}] {tc.testCaseTitle}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <span className={`tc-badge tc-badge--${(tc.priority || '').toLowerCase()}`}>{tc.priority}</span>
-                  <span className="tc-badge tc-badge--type">{tc.testType}</span>
-                </div>
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.3rem 1rem', paddingLeft: '2.5rem' }}>
-                <span><strong>Module:</strong> {tc.module}</span>
-                <span><strong>{TOOL_COLUMN_LABEL[tool] || `${tool} ID`}:</strong> {tc.toolTicketId || tc.toolId}</span>
-                <span style={{ gridColumn: '1/-1' }}><strong>Preconditions:</strong> {tc.preconditions}</span>
-                <div style={{ gridColumn: '1/-1' }}>
-                  <strong>Steps:</strong>
-                  {Array.isArray(tc.testSteps) ? (
-                    <div style={{ marginLeft: '0.5rem', marginTop: '0.25rem' }}>
-                      {tc.testSteps.map((s, idx) => (
-                        s && typeof s === 'object' ? (
-                          <div key={idx} style={{ marginBottom: '0.15rem' }}>
-                            <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{s.stepNumber || idx + 1}.</span> {s.action || 'No Action'}
-                            {s.testData && s.testData !== 'N/A' && (
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}> (Data: {s.testData})</span>
-                            )}
-                          </div>
-                        ) : <div key={idx}>{String(s)}</div>
-                      ))}
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {onEdit && (
+                        <button
+                          onClick={() => onEdit(tc, originalIndex)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '2px' }}
+                          title="Edit Test Case"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button
+                          onClick={() => onDelete(originalIndex)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px' }}
+                          title="Delete Test Case"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <span> {String(tc.testSteps || '')}</span>
-                  )}
+                    <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)' }}>
+                      [{tc.testCaseId}] {tc.testCaseTitle}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <span className={`tc-badge tc-badge--${(tc.priority || '').toLowerCase()}`}>{tc.priority}</span>
+                    <span className="tc-badge tc-badge--type">{tc.testType}</span>
+                  </div>
                 </div>
-                <span style={{ gridColumn: '1/-1' }}><strong>Test Data:</strong> {tc.testData}</span>
-                <span style={{ gridColumn: '1/-1' }}><strong>Expected Result:</strong> {tc.expectedResult}</span>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.3rem 1rem', paddingLeft: '2.5rem' }}>
+                  <span><strong>Module:</strong> {tc.module}</span>
+                  <span><strong>{TOOL_COLUMN_LABEL[tool] || `${tool} ID`}:</strong> {tc.toolTicketId || tc.toolId}</span>
+                  <span style={{ gridColumn: '1/-1' }}><strong>Preconditions:</strong> {tc.preconditions}</span>
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <strong>Steps:</strong>
+                    {Array.isArray(tc.testSteps) ? (
+                      <div style={{ marginLeft: '0.5rem', marginTop: '0.25rem' }}>
+                        {tc.testSteps.map((s, idx) => (
+                          s && typeof s === 'object' ? (
+                            <div key={idx} style={{ marginBottom: '0.15rem' }}>
+                              <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{s.stepNumber || idx + 1}.</span> {s.action || 'No Action'}
+                              {s.testData && s.testData !== 'N/A' && (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}> (Data: {s.testData})</span>
+                              )}
+                            </div>
+                          ) : <div key={idx}>{String(s)}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span> {String(tc.testSteps || '')}</span>
+                    )}
+                  </div>
+                  <span style={{ gridColumn: '1/-1' }}><strong>Test Data:</strong> {tc.testData}</span>
+                  <span style={{ gridColumn: '1/-1' }}><strong>Expected Result:</strong> {tc.expectedResult}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
           </div>
         </div>
       )}
@@ -581,20 +658,20 @@ const EditTestCaseModal: React.FC<{
       <div className="modal-content tc-edit-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header" style={{ padding: '0.6rem 1.25rem' }}>
           <h2 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-main)', fontWeight: 800 }}>Edit {tc.testCaseId}</h2>
-          
+
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
               <span style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase' }}>Priority</span>
-              <select 
-                name="priority" 
-                value={edited.priority} 
-                onChange={handleFieldChange} 
-                style={{ 
-                  border: '1px solid var(--border-color)', 
+              <select
+                name="priority"
+                value={edited.priority}
+                onChange={handleFieldChange}
+                style={{
+                  border: '1px solid var(--border-color)',
                   borderRadius: '4px',
-                  height: '22px', 
-                  fontSize: '0.6rem', 
-                  fontWeight: 800, 
+                  height: '22px',
+                  fontSize: '0.6rem',
+                  fontWeight: 800,
                   padding: '0 0.3rem',
                   textTransform: 'uppercase',
                   background: 'var(--bg-main)',
@@ -609,16 +686,16 @@ const EditTestCaseModal: React.FC<{
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
               <span style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase' }}>Type</span>
-              <select 
-                name="testType" 
-                value={edited.testType} 
-                onChange={handleFieldChange} 
-                style={{ 
-                  border: '1px solid var(--border-color)', 
+              <select
+                name="testType"
+                value={edited.testType}
+                onChange={handleFieldChange}
+                style={{
+                  border: '1px solid var(--border-color)',
                   borderRadius: '4px',
-                  height: '22px', 
-                  fontSize: '0.6rem', 
-                  fontWeight: 800, 
+                  height: '22px',
+                  fontSize: '0.6rem',
+                  fontWeight: 800,
                   padding: '0 0.3rem',
                   textTransform: 'uppercase',
                   background: 'var(--bg-main)',
@@ -639,32 +716,32 @@ const EditTestCaseModal: React.FC<{
             <X size={16} />
           </button>
         </div>
-        
+
         <div className="modal-subheader" style={{ padding: '0.5rem 1.25rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Title</label>
-              <input 
-                name="testCaseTitle" 
-                value={edited.testCaseTitle} 
-                onChange={handleFieldChange} 
+              <input
+                name="testCaseTitle"
+                value={edited.testCaseTitle}
+                onChange={handleFieldChange}
                 className="form-control"
                 style={{ height: '30px', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}
               />
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Module</label>
-              <input 
-                name="module" 
-                value={edited.module} 
-                onChange={handleFieldChange} 
+              <input
+                name="module"
+                value={edited.module}
+                onChange={handleFieldChange}
                 className="form-control"
                 style={{ height: '30px', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}
               />
             </div>
           </div>
         </div>
-        
+
         <div className="modal-body" style={{ maxHeight: '78vh', paddingTop: '0.75rem' }}>
           {error && (
             <div className="validation-error-banner" style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem' }}>
@@ -675,12 +752,12 @@ const EditTestCaseModal: React.FC<{
 
           <div className="form-group" style={{ marginBottom: '0.75rem' }}>
             <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.25rem' }}>Preconditions</label>
-            <textarea 
-              name="preconditions" 
-              value={edited.preconditions} 
-              onChange={handleFieldChange} 
-              className="form-control" 
-              rows={2} 
+            <textarea
+              name="preconditions"
+              value={edited.preconditions}
+              onChange={handleFieldChange}
+              className="form-control"
+              rows={2}
               style={{ fontSize: '0.8rem', padding: '0.4rem 0.65rem' }}
             />
           </div>
@@ -709,22 +786,22 @@ const EditTestCaseModal: React.FC<{
                       </div>
                       <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: '0.15rem', background: 'var(--bg-main)', padding: '2px', borderRadius: '4px' }}>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); insertStepBefore(idx); }} 
+                          <button
+                            onClick={(e) => { e.stopPropagation(); insertStepBefore(idx); }}
                             className="btn-glossy-green"
                             title="Add Step Above"
                           >
                             <ArrowUpFromLine size={12} />
                           </button>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); insertStepAfter(idx); }} 
+                          <button
+                            onClick={(e) => { e.stopPropagation(); insertStepAfter(idx); }}
                             className="btn-glossy-green"
                             title="Add Step Below"
                           >
                             <ArrowDownFromLine size={12} />
                           </button>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); removeStep(idx); }} 
+                          <button
+                            onClick={(e) => { e.stopPropagation(); removeStep(idx); }}
                             className="btn-glossy-red"
                             title="Remove Step"
                           >
@@ -737,16 +814,16 @@ const EditTestCaseModal: React.FC<{
                         </button>
                       </div>
                     </div>
-                    
+
                     {!collapsedSteps.has(idx) && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', animation: 'fadeIn 0.2s ease-out' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                           <div className="form-group" style={{ marginBottom: 0 }}>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
                             <label style={{ fontSize: '0.6rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Action</label>
-                            <textarea 
-                              placeholder="Step action..." 
-                              value={step.action} 
-                              onChange={(e) => handleStepChange(idx, 'action', e.target.value)} 
+                            <textarea
+                              placeholder="Step action..."
+                              value={step.action}
+                              onChange={(e) => handleStepChange(idx, 'action', e.target.value)}
                               className="form-control"
                               rows={2}
                               style={{ fontSize: '0.78rem', padding: '0.35rem 0.6rem' }}
@@ -754,11 +831,11 @@ const EditTestCaseModal: React.FC<{
                           </div>
                           <div className="form-group" style={{ marginBottom: 0 }}>
                             <label style={{ fontSize: '0.6rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Expected Result</label>
-                            <textarea 
-                              placeholder="Expected result..." 
-                              value={step.expected} 
-                              onChange={(e) => handleStepChange(idx, 'expected', e.target.value)} 
-                              className="form-control" 
+                            <textarea
+                              placeholder="Expected result..."
+                              value={step.expected}
+                              onChange={(e) => handleStepChange(idx, 'expected', e.target.value)}
+                              className="form-control"
                               rows={2}
                               style={{ fontSize: '0.78rem', padding: '0.35rem 0.6rem' }}
                             />
@@ -766,10 +843,10 @@ const EditTestCaseModal: React.FC<{
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label style={{ fontSize: '0.6rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>Step Test Data</label>
-                          <input 
-                            placeholder="Step specific data..." 
-                            value={step.testData} 
-                            onChange={(e) => handleStepChange(idx, 'testData', e.target.value)} 
+                          <input
+                            placeholder="Step specific data..."
+                            value={step.testData}
+                            onChange={(e) => handleStepChange(idx, 'testData', e.target.value)}
                             className="form-control"
                             style={{ height: '28px', fontSize: '0.78rem' }}
                           />
@@ -782,27 +859,27 @@ const EditTestCaseModal: React.FC<{
             </div>
           </div>
 
-          
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.75rem' }}>
             <div className="form-group">
               <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.3rem' }}>Overall Test Data</label>
-              <textarea 
-                name="testData" 
-                value={edited.testData} 
-                onChange={handleFieldChange} 
-                className="form-control" 
-                rows={4} 
+              <textarea
+                name="testData"
+                value={edited.testData}
+                onChange={handleFieldChange}
+                className="form-control"
+                rows={4}
                 style={{ fontSize: '0.8rem', padding: '0.4rem 0.65rem' }}
               />
             </div>
             <div className="form-group">
               <label style={{ fontSize: '0.62rem', color: 'var(--text-main)', marginBottom: '0.3rem' }}>Overall Expected Result</label>
-              <textarea 
-                name="expectedResult" 
-                value={edited.expectedResult} 
-                onChange={handleFieldChange} 
-                className="form-control" 
-                rows={4} 
+              <textarea
+                name="expectedResult"
+                value={edited.expectedResult}
+                onChange={handleFieldChange}
+                className="form-control"
+                rows={4}
                 style={{ fontSize: '0.8rem', padding: '0.4rem 0.65rem' }}
               />
             </div>
@@ -833,7 +910,7 @@ const TestCasesResultsSection: React.FC<{
     <div className="test-results-container">
       <div className="test-results-header">
         <h2 className="test-results-title">{title}</h2>
-        
+
         <div className="test-results-controls">
           {selectedIndices.length > 0 && (
             <button className="btn btn-outline red compact" onClick={onDeleteSelected} style={{ height: '32px' }}>
@@ -846,9 +923,9 @@ const TestCasesResultsSection: React.FC<{
       </div>
 
       <div className="test-results-card">
-        <TestCasesPreview 
-          data={data} 
-          tool={tool} 
+        <TestCasesPreview
+          data={data}
+          tool={tool}
           selectedIndices={selectedIndices}
           onToggleSelect={onToggleSelect}
           onSelectAll={onSelectAll}
@@ -907,6 +984,9 @@ interface FormData {
   issueId: string;
 }
 
+type AIConfig  = { llmApiKey: string; llmModel: string; llmEndpoint: string };
+type ALMConfig = { baseUrl: string; username: string; token: string; issueId: string };
+
 interface TcFormData {
   manualRequirements: string;
   customInstructions: string;
@@ -940,7 +1020,7 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toast]);
-  
+
   // ── Test Plan state ──────────────────────────────────────────────────────
   const [tpStatus, setTpStatus] = useState('');
   const [tpDocPath, setTpDocPath] = useState('');
@@ -959,8 +1039,84 @@ const App: React.FC = () => {
     widgetsSections: '',
     additionalContext: '',
   });
+
+  // ── Conversation State Management ────────────────────────────────────────
+  const clearConversationState = () => {
+    // Clear all state related to conversation and generation
+    setTcFormData({
+      manualRequirements: '',
+      customInstructions: '',
+      sharedPrerequisites: '',
+      businessRules: '',
+      widgetsSections: '',
+      additionalContext: '',
+    });
+    setTcStatus('');
+    setTcDocPath('');
+    setTcMdPath('');
+    setTcResults(null);
+    setSelectedTcIndices([]);
+    setEditingTcIndex(null);
+    setEditingTc(null);
+    setTcGapAnalysis(null);
+    setTcGapRunning(false);
+    setTcGapStepIndex(0);
+    setTcGenerating(false);
+    setTcGenerateStepIndex(0);
+    setTcCoverageScore(null);
+    setTcSaveRunning(false);
+    setShowTcInsights(false);
+    setUploadTargetTool(null);
+
+    // Clear Test Plan state
+    setTpStatus('');
+    setTpDocPath('');
+    setTpGapAnalysis(null);
+    setTpGapRunning(false);
+    setTpGapStepIndex(0);
+    setTpGenerating(false);
+    setTpGenerateStepIndex(0);
+    setTpScenarios(null);
+    setSelectedTsIndices([]);
+
+    // Clear issue details and status
+    setIssueDetails(null);
+    setIssueFetching(false);
+
+    // Clear upload state
+    setUploadModalOpen(false);
+    setUploadConfig({
+      projectKey: '',
+      projectName: '',
+      testPlanId: '',
+      testSuiteId: '',
+      projectId: '',
+      suiteId: '',
+      sectionId: '',
+      moduleId: ''
+    });
+    setUploadResults([]);
+    setUploadRunning(false);
+    setUploadMessage(null);
+    setAvailableProjects([]);
+    setFetchingProjects(false);
+
+    // Clear connection status
+    setAiStatus('Not Connected!');
+    setAlmStatus('Not Connected!');
+    setAiTesting(false);
+    setAlmTesting(false);
+    setAiStepIndex(0);
+    setAlmStepIndex(0);
+
+    // Clear any active editing
+    setEditingTc(null);
+
+    setToast({ message: 'Conversation state cleared successfully.', type: 'success' });
+  };
   const [showTCOptional, setShowTCOptional] = useState(false);
   const [tcStatus, setTcStatus] = useState('');
+  const [tcPostError, setTcPostError] = useState('');
   const [tcDocPath, setTcDocPath] = useState('');
   const [tcResults, setTcResults] = useState<TestData | null>(null);
   const [selectedTcIndices, setSelectedTcIndices] = useState<number[]>([]);
@@ -976,6 +1132,7 @@ const App: React.FC = () => {
   const [tcSaveRunning, setTcSaveRunning] = useState(false);
   const [showTcInsights, setShowTcInsights] = useState(false);
   const [uploadTargetTool, setUploadTargetTool] = useState<string | null>(null);
+  const [zephyrModalOpen, setZephyrModalOpen] = useState(false);
 
   // ── Test Scenarios state ──────────────────────────────────────────────────
   const [tpScenarios, setTpScenarios] = useState<TestData | null>(null);
@@ -995,6 +1152,9 @@ const App: React.FC = () => {
   });
   const [uploadResults, setUploadResults] = useState<any[]>([]);
   const [uploadRunning, setUploadRunning] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+  const [availableProjects, setAvailableProjects] = useState<any[]>([]);
+  const [fetchingProjects, setFetchingProjects] = useState(false);
 
   const [formData, setFormData] = useState<FormData>({
     llmProvider: 'GROQ',
@@ -1015,13 +1175,14 @@ const App: React.FC = () => {
 
   const isNeutralStatus = (s: string) =>
     ['Pinging API server...', 'Checking provider endpoint...', 'Generating test plan...',
-     'Analyzing requirement gaps...', 'Generating test cases...'].includes(s) ||
+      'Analyzing requirement gaps...', 'Generating test cases...'].includes(s) ||
     getGapAnalysisSteps(formData.llmProvider, formData.selectedTool).includes(s);
 
   const getStatusClass = (status: string) => {
     if (!status) return '';
     if (['Connection Successful!', 'Gap analysis completed.'].includes(status) ||
-        status.startsWith('Test Plan generated:') || status.startsWith('Test cases generated:'))
+      status.startsWith('Test Plan generated:') || status.startsWith('Test cases generated:') ||
+      status.startsWith('Test Scenarios generated:'))
       return 'status-indicator success';
     if (status.startsWith('Error:')) return 'status-indicator error';
     if (isNeutralStatus(status)) return 'status-indicator neutral';
@@ -1032,7 +1193,8 @@ const App: React.FC = () => {
     if (status === 'Connection Successful!') return <CheckCircle2 size={18} />;
     if (status === 'Not Connected!') return <WifiOff size={18} />;
     if (['Gap analysis completed.'].includes(status) ||
-        status.startsWith('Test Plan generated:') || status.startsWith('Test cases generated:'))
+      status.startsWith('Test Plan generated:') || status.startsWith('Test cases generated:') ||
+      status.startsWith('Test Scenarios generated:'))
       return <CheckCircle2 size={18} />;
     if (status.startsWith('Error:')) return <AlertTriangle size={18} />;
     return <Zap size={18} />;
@@ -1140,23 +1302,84 @@ const App: React.FC = () => {
 
   // Load persistence
   useEffect(() => {
-    const saved = localStorage.getItem('agent_config');
-    if (saved) setFormData(JSON.parse(saved));
+    const aiConfigs:  Record<string, AIConfig>  = JSON.parse(localStorage.getItem('ai_configs')  || '{}');
+    const almConfigs: Record<string, ALMConfig> = JSON.parse(localStorage.getItem('alm_configs') || '{}');
+
+    // One-time migration from legacy flat key
+    if (!Object.keys(aiConfigs).length && !Object.keys(almConfigs).length) {
+      const legacy = localStorage.getItem('agent_config');
+      if (legacy) {
+        const d = JSON.parse(legacy);
+        if (d.llmProvider)  aiConfigs[d.llmProvider]   = { llmApiKey: d.llmApiKey || '', llmModel: d.llmModel || '', llmEndpoint: d.llmEndpoint || 'http://127.0.0.1:11434' };
+        if (d.selectedTool) almConfigs[d.selectedTool] = { baseUrl: d.baseUrl || '', username: d.username || '', token: d.token || '', issueId: d.issueId || '' };
+      }
+    }
+
+    const provider = localStorage.getItem('last_provider') || 'GROQ';
+    const tool     = localStorage.getItem('last_tool')     || 'Jira';
+    const ai  = aiConfigs[provider]  || { llmApiKey: '', llmModel: '', llmEndpoint: 'http://127.0.0.1:11434' };
+    const alm = almConfigs[tool]     || { baseUrl: '', username: '', token: '', issueId: '' };
+
+    setFormData(prev => ({ ...prev, llmProvider: provider, selectedTool: tool, ...ai, ...alm }));
   }, []);
 
-  const AI_FIELDS  = new Set(['llmProvider', 'llmEndpoint', 'llmModel', 'llmApiKey']);
+  useEffect(() => {
+    if (uploadModalOpen) {
+      setUploadMessage(null);
+      setAvailableProjects([]);
+    }
+  }, [uploadModalOpen]);
+
+  const AI_FIELDS = new Set(['llmProvider', 'llmEndpoint', 'llmModel', 'llmApiKey']);
   const ALM_FIELDS = new Set(['selectedTool', 'baseUrl', 'username', 'token']);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
+
+    if (name === 'llmProvider') {
+      const aiConfigs: Record<string, AIConfig> = JSON.parse(localStorage.getItem('ai_configs') || '{}');
+      const saved = aiConfigs[value] || { llmApiKey: '', llmModel: '', llmEndpoint: 'http://127.0.0.1:11434' };
+      setFormData(prev => ({ ...prev, llmProvider: value, ...saved }));
+      setAiStatus('Not Connected!');
+      return;
+    }
+
+    if (name === 'selectedTool') {
+      const almConfigs: Record<string, ALMConfig> = JSON.parse(localStorage.getItem('alm_configs') || '{}');
+      const saved = almConfigs[value] || { baseUrl: '', username: '', token: '', issueId: '' };
+      setFormData(prev => ({ ...prev, selectedTool: value, ...saved }));
+      setAlmStatus('Not Connected!');
+      setIssueDetails(null);
+      return;
+    }
+
+    setFormData(prev => ({ ...prev, [name]: value }));
     if (AI_FIELDS.has(name))  setAiStatus('Not Connected!');
     if (ALM_FIELDS.has(name)) setAlmStatus('Not Connected!');
-    if (name === 'issueId') setIssueDetails(null);
+    if (name === 'issueId')   setIssueDetails(null);
   };
 
   const handleSave = (type: 'AI' | 'ALM') => {
-    localStorage.setItem('agent_config', JSON.stringify(formData));
+    if (type === 'AI') {
+      const aiConfigs: Record<string, AIConfig> = JSON.parse(localStorage.getItem('ai_configs') || '{}');
+      aiConfigs[formData.llmProvider] = {
+        llmApiKey:   formData.llmApiKey,
+        llmModel:    formData.llmModel,
+        llmEndpoint: formData.llmEndpoint,
+      };
+      localStorage.setItem('ai_configs',    JSON.stringify(aiConfigs));
+      localStorage.setItem('last_provider', formData.llmProvider);
+    } else {
+      const almConfigs: Record<string, ALMConfig> = JSON.parse(localStorage.getItem('alm_configs') || '{}');
+      almConfigs[formData.selectedTool] = {
+        baseUrl:  formData.baseUrl,
+        username: formData.username,
+        token:    formData.token,
+        issueId:  formData.issueId,
+      };
+      localStorage.setItem('alm_configs', JSON.stringify(almConfigs));
+      localStorage.setItem('last_tool',   formData.selectedTool);
+    }
     setToast({ message: `${type} Configuration Saved!`, type: 'save' });
   };
 
@@ -1207,9 +1430,9 @@ const App: React.FC = () => {
 
     try {
       const res = await fetch(`${BACKEND_API_BASE}/verify`, {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ type, ...formData })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, ...formData })
       });
       if (res.ok) {
         setStatus('Connection Successful!');
@@ -1219,7 +1442,7 @@ const App: React.FC = () => {
         setStatus(`Error: ${err}`);
         setToast({ message: `Connection Failed: ${err}`, type: 'error' });
       }
-    } catch(err) {
+    } catch (err) {
       setStatus('Failed to reach verification service.');
       setToast({ message: 'Network Error: Backend unreachable.', type: 'error' });
     } finally {
@@ -1235,7 +1458,7 @@ const App: React.FC = () => {
       </div>
       <div className="header-right">
         <div className="user-profile">
-          <div className="user-text" style={{textAlign: 'right'}}>
+          <div className="user-text" style={{ textAlign: 'right' }}>
             <span className="user-name">OTSI - Smart QA</span>
             <span className="user-role">AI-DRIVEN</span>
           </div>
@@ -1249,7 +1472,7 @@ const App: React.FC = () => {
     <>
       <h1 className="page-title">Connection Settings</h1>
       <p className="page-subtitle">Configure your ALM integration and AI engine endpoints to establish the data linkage.</p>
-      
+
       <div className="card-grid">
         {/* AI Engine Card */}
         <div className="card">
@@ -1260,7 +1483,7 @@ const App: React.FC = () => {
               {aiStatus === 'Connection Successful!' ? 'CONNECTED' : 'CONFIG REQUIRED'}
             </div>
           </div>
-          
+
           <div className="form-group">
             <label>Provider</label>
             <select name="llmProvider" value={formData.llmProvider} onChange={handleChange} className="form-control">
@@ -1298,7 +1521,7 @@ const App: React.FC = () => {
           </div>
 
           {aiStatus && aiStatus !== 'Connection Successful!' && (
-            <div className={getStatusClass(aiStatus)} style={{marginBottom: '1rem', marginTop: 0}}>
+            <div className={getStatusClass(aiStatus)} style={{ marginBottom: '1rem', marginTop: 0 }}>
               {renderStatusIcon(aiStatus)} {aiStatus}
             </div>
           )}
@@ -1317,7 +1540,7 @@ const App: React.FC = () => {
               {almStatus === 'Connection Successful!' ? 'CONNECTED' : 'CONFIG REQUIRED'}
             </div>
           </div>
-          
+
           <div className="form-group">
             <label>Test Management Tool</label>
             <select name="selectedTool" value={formData.selectedTool} onChange={handleChange} className="form-control">
@@ -1326,24 +1549,45 @@ const App: React.FC = () => {
               <option value="X-Ray">X-Ray (Cloud)</option>
               <option value="TestRail">TestRail</option>
               <option value="QTest">QTest</option>
+              <option value="Zephyr">Zephyr Scale</option>
             </select>
           </div>
 
-          <div className="form-group">
-            <label>Workspace URL</label>
-            <input type="url" name="baseUrl" value={formData.baseUrl} onChange={handleChange} className="form-control" />
-          </div>
+          {(() => {
+            const almCfg = getAlmToolConfig(formData.selectedTool);
+            return (
+              <>
+                <div className="form-group">
+                  <label>{almCfg.urlLabel}</label>
+                  <input type="url" name="baseUrl" value={formData.baseUrl} onChange={handleChange}
+                    className="form-control" placeholder={almCfg.urlPlaceholder} />
+                </div>
 
-          <div className="form-group">
-            <label>Auth Details (Email / Token)</label>
-            <div style={{display:'flex', gap:'1rem'}}>
-               <input type="text" name="username" value={formData.username} onChange={handleChange} className="form-control" placeholder="Email" />
-               <input type="password" name="token" value={formData.token} onChange={handleChange} className="form-control" placeholder="Token" />
-            </div>
-          </div>
+                {almCfg.showUsername && (
+                  <div className="form-group">
+                    <label>{almCfg.usernameLabel}</label>
+                    <input type="text" name="username" value={formData.username} onChange={handleChange}
+                      className="form-control" placeholder={almCfg.usernameLabel} />
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label>{almCfg.tokenLabel}</label>
+                  <input type="password" name="token" value={formData.token} onChange={handleChange}
+                    className="form-control" placeholder={almCfg.tokenPlaceholder} />
+                </div>
+
+                {almCfg.hint && (
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: '-0.5rem', marginBottom: '0.75rem', lineHeight: 1.4 }}>
+                    {almCfg.hint}
+                  </p>
+                )}
+              </>
+            );
+          })()}
 
           {almStatus && almStatus !== 'Connection Successful!' && (
-            <div className={getStatusClass(almStatus)} style={{marginBottom: '1rem', marginTop: 0}}>
+            <div className={getStatusClass(almStatus)} style={{ marginBottom: '1rem', marginTop: 0 }}>
               {renderStatusIcon(almStatus)} {almStatus}
             </div>
           )}
@@ -1392,7 +1636,7 @@ const App: React.FC = () => {
     const newResults = { ...tcResults, testCases: newCases };
     setTcResults(newResults);
     setSelectedTcIndices(prev => prev.filter(i => i !== index).map(i => i > index ? i - 1 : i));
-    
+
     // Sync with backend
     try {
       await fetch(`${BACKEND_API_BASE}/update-test-cases`, {
@@ -1434,7 +1678,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRunGapAnalysis = async () => {
+  const handleRunGapAnalysis = async (postGeneration = false) => {
     setTcGapRunning(true);
     setTcGapAnalysis(null);
     setTcCoverageScore(null);
@@ -1447,7 +1691,6 @@ const App: React.FC = () => {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.status === 'success' && data.analysis) {
         setTcGapAnalysis(data.analysis);
-        // Calculate coverage score from gap analysis
         const s = data.analysis.strengths?.length ?? 0;
         const g = data.analysis.gaps?.length ?? 0;
         const raw = Math.round((s / Math.max(s + g, 1)) * 100);
@@ -1456,11 +1699,19 @@ const App: React.FC = () => {
         setToast({ message: 'Gap analysis completed successfully.', type: 'success' });
       } else {
         const err = data.detail || data.message || 'Gap analysis failed.';
-        setTcStatus(`Error: ${err}`);
+        if (postGeneration) {
+          setTcPostError(`Error: ${err}`);
+        } else {
+          setTcStatus(`Error: ${err}`);
+        }
         setToast({ message: `Analysis Failed: ${err}`, type: 'error' });
       }
     } catch {
-      setTcStatus('Error: Unable to analyze requirement gaps.');
+      if (postGeneration) {
+        setTcPostError('Error: Unable to analyze requirement gaps.');
+      } else {
+        setTcStatus('Error: Unable to analyze requirement gaps.');
+      }
       setToast({ message: 'Network Error: Analysis failed.', type: 'error' });
     } finally {
       setTcGapRunning(false);
@@ -1494,15 +1745,59 @@ const App: React.FC = () => {
     }
   };
 
+  const handleFetchAvailableProjects = async () => {
+    setFetchingProjects(true);
+    setAvailableProjects([]);
+
+    const tool = uploadTargetTool === 'Zephyr' ? 'Jira' : uploadTargetTool || formData.selectedTool;
+    const payload = {
+      type: 'list-projects',
+      selectedTool: tool,
+      baseUrl: formData.baseUrl,
+      username: formData.username,
+      token: formData.token,
+    };
+
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/list-projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        // Handle HTTP error responses
+        const errorMsg = d.detail || d.message || `HTTP ${res.status}: Unable to fetch projects for ${tool}`;
+        setUploadMessage({ type: 'error', text: errorMsg });
+      } else if (d.status === 'success' && d.projects) {
+        setAvailableProjects(d.projects);
+        setUploadMessage({ type: 'success', text: `Found ${d.projects.length} project(s)` });
+      } else {
+        setUploadMessage({
+          type: 'error',
+          text: d.detail || d.message || `Unable to fetch projects for ${tool}. Check your credentials.`
+        });
+      }
+    } catch {
+      setUploadMessage({ type: 'error', text: 'Unable to fetch projects. Is the backend running?' });
+    } finally {
+      setFetchingProjects(false);
+    }
+  };
+
   const handleUploadToALM = async (config: UploadConfig) => {
     setUploadRunning(true);
     setUploadResults([]);
+    setUploadMessage(null);
 
     const toUpload = tcResults?.testCases || [];
     const payload = {
       ...formData,
       testCases: toUpload,
       ...config,
+      // Use Jira as selectedTool when uploading to Zephyr (Zephyr Scale is a Jira plugin)
+      selectedTool: uploadTargetTool === 'Zephyr' ? 'Jira' : uploadTargetTool || formData.selectedTool,
     };
 
     try {
@@ -1512,17 +1807,30 @@ const App: React.FC = () => {
         body: JSON.stringify(payload),
       });
       const d = await res.json().catch(() => ({}));
-      if (d.status === 'success') {
+
+      if (!res.ok) {
+        const errorMsg = d.detail || d.message || `HTTP ${res.status}: Upload failed`;
+        setUploadMessage({ type: 'error', text: errorMsg });
+        setToast({ message: `Error: ${errorMsg}`, type: 'error' });
+      } else if (d.status === 'success') {
         setUploadResults(d.results || []);
+        setUploadMessage({ type: 'success', text: d.message || 'Upload complete successfully!' });
         setToast({ message: d.message || 'Upload complete.', type: 'save' });
+        // Auto-close on success after 2 seconds
+        setTimeout(() => {
+          setUploadModalOpen(false);
+        }, 2000);
       } else {
-        setToast({ message: `Error: ${d.detail || d.message || 'Upload failed.'}`, type: 'error' });
+        const errorMsg = d.detail || d.message || 'Upload failed.';
+        setUploadMessage({ type: 'error', text: errorMsg });
+        setToast({ message: `Error: ${errorMsg}`, type: 'error' });
       }
-    } catch {
-      setToast({ message: 'Error: Unable to upload. Is the backend running?', type: 'error' });
+    } catch (err) {
+      const errorMsg = 'Unable to upload. Is the backend running?';
+      setUploadMessage({ type: 'error', text: errorMsg });
+      setToast({ message: `Error: ${errorMsg}`, type: 'error' });
     } finally {
       setUploadRunning(false);
-      setUploadModalOpen(false);
     }
   };
 
@@ -1535,12 +1843,12 @@ const App: React.FC = () => {
 
       <div className="twin-col">
         {/* Left Side -> Controls */}
-        <div className="left-controls" style={{display: 'flex', flexDirection: 'column', gap: '1.5rem'}}>
-          <div className="card" style={{padding: '1.5rem'}}>
-            <div className="card-header" style={{margin: '0 0 1rem 0'}}>
-              <div className="card-title" style={{fontSize: '0.95rem'}}>Requirement Source</div>
+        <div className="left-controls" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div className="card" style={{ padding: '1.5rem' }}>
+            <div className="card-header" style={{ margin: '0 0 1rem 0' }}>
+              <div className="card-title" style={{ fontSize: '0.95rem' }}>Requirement Source</div>
             </div>
-            
+
             <div className="form-group">
               <label>{getPlatformIssueId(formData.selectedTool).label}</label>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -1556,17 +1864,17 @@ const App: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div style={{textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: '1rem 0'}}>OR PASTE BELOW</div>
+            <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: '1rem 0' }}>OR PASTE BELOW</div>
             <div className="form-group">
-                <textarea className="form-control" rows={3} placeholder="Provide manual contextual details here for the LLM payload..." />
+              <textarea className="form-control" rows={3} placeholder="Provide manual contextual details here for the LLM payload..." />
             </div>
           </div>
 
-          <div className="card" style={{padding: '1.5rem', borderColor: 'var(--primary)'}}>
-            <div className="card-header" style={{margin: '0 0 1rem 0'}}>
-              <div className="card-title" style={{fontSize: '0.95rem'}}>Generation Instructions</div>
+          <div className="card" style={{ padding: '1.5rem', borderColor: 'var(--primary)' }}>
+            <div className="card-header" style={{ margin: '0 0 1rem 0' }}>
+              <div className="card-title" style={{ fontSize: '0.95rem' }}>Generation Instructions</div>
             </div>
-            <p style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
               Agent will utilize {formData.llmProvider} to execute zero-hallucination extraction mapping to the Test Plan structure.
             </p>
           </div>
@@ -1580,9 +1888,9 @@ const App: React.FC = () => {
             <IssueDetailsPreview details={issueDetails} issueId={formData.issueId} tool={formData.selectedTool} />
           ) : (
             <>
-              <ClipboardList size={48} style={{opacity: 0.3, marginBottom: '1rem'}} />
-              <h3 style={{fontWeight: '600', marginBottom: '0.5rem'}}>No analysis available</h3>
-              <p style={{fontSize: '0.85rem', maxWidth: '250px'}}>Run Analyze Gaps First to review missing requirement details before generation.</p>
+              <ClipboardList size={48} style={{ opacity: 0.3, marginBottom: '1rem' }} />
+              <h3 style={{ fontWeight: '600', marginBottom: '0.5rem' }}>No analysis available</h3>
+              <p style={{ fontSize: '0.85rem', maxWidth: '250px' }}>Run Analyze Gaps First to review missing requirement details before generation.</p>
             </>
           )}
         </div>
@@ -1632,19 +1940,81 @@ const App: React.FC = () => {
       )}
 
       {tpStatus ? (
-        <div className={getStatusClass(tpStatus)} style={{ marginTop: '1rem', marginBottom: 0, justifyContent: 'space-between' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {renderStatusIcon(tpStatus)} {tpStatus}
-          </span>
-          {tpDocPath ? (
-            <a className="btn btn-outline" href={`${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tpDocPath)}`} target="_blank" rel="noreferrer">
-              Download Test Plan
-            </a>
-          ) : null}
+        <div style={{
+          marginTop: '1rem',
+          marginBottom: 0,
+          borderRadius: '8px',
+          animation: 'slideIn 0.3s ease-out',
+        }}>
+          {tpDocPath && !tpStatus.startsWith('Error:') ? (
+            // Completion state: show filename and download button
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+              background: 'rgba(16, 185, 129, 0.1)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: '8px',
+              padding: '1rem',
+              gap: '1rem',
+              flexWrap: 'wrap',
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1, minWidth: '200px' }}>
+                <CheckCircle2 size={20} style={{ color: '#10b981', flexShrink: 0 }} />
+                <span style={{
+                  color: '#10b981',
+                  fontWeight: 700,
+                  fontSize: '0.92rem',
+                  letterSpacing: '0.01em',
+                  wordBreak: 'break-all',
+                }}>
+                  {tpDocPath.split(/[\\/]/).pop() || 'document'}
+                </span>
+              </span>
+              <a
+                className="btn"
+                href={`${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tpDocPath)}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  padding: '0.65rem 1.5rem',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  textDecoration: 'none',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Download size={16} />
+                {currentView === 'review' ? 'Download Test Cases' : currentView === 'testscenarios' ? 'Download Test Scenarios' : 'Download Test Plan'}
+              </a>
+            </div>
+          ) : (
+            // Progress state: show step indicator
+            <div className={getStatusClass(tpStatus)} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '1rem',
+              borderRadius: '8px',
+            }}>
+              {renderStatusIcon(tpStatus)}
+              <span style={{ fontWeight: 500 }}>{tpStatus}</span>
+            </div>
+          )}
         </div>
       ) : null}
 
-      <div className="actions-row" style={{borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start'}}>
+      <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start' }}>
         <button className="btn btn-salmon" disabled={tpGapRunning} onClick={async () => {
           setTpGapAnalysis(null);
           setTpDocPath('');
@@ -1696,10 +2066,15 @@ const App: React.FC = () => {
               if (isReview && d.test_cases) {
                 setTcResults(d.test_cases);
                 setTcMdPath(d.md_path || '');
+                setTcDocPath(d.document_path || '');
               }
               if (isScenarios && d.test_cases) setTpScenarios(d.test_cases);
               const statusMsg = isScenarios ? 'Test Scenarios' : isReview ? 'Test Cases' : 'Test Plan';
-              setTpStatus(`${statusMsg} generated successfully`);
+              const tcCount = isReview && d.test_cases ? d.test_cases.testCases?.length || 0 : 0;
+              const detailedMsg = isReview
+                ? `Test cases generated: ${filename} (${tcCount} cases)`
+                : `${statusMsg} generated: ${filename}`;
+              setTpStatus(detailedMsg);
               setToast({ message: `${statusMsg} Generated Successfully`, type: 'success' });
             } else {
               const err = d.detail || d.message || 'Execution error.';
@@ -1715,17 +2090,17 @@ const App: React.FC = () => {
         }}>{tpGenerating
           ? <><RefreshCw size={16} className="spin" /> Generating...</>
           : <>
-              {currentView === 'testplan' ? 'Generate Test Plan' :
+            {currentView === 'testplan' ? 'Generate Test Plan' :
               currentView === 'testscenarios' ? 'Generate Test Scenarios' :
-              currentView === 'review' ? 'Review Test Cases Plan' :
-              'Generate Directly'}
-            </>
-        }</button>
+                currentView === 'review' ? 'Review Test Cases Plan' :
+                  'Generate Directly'}
+          </>
+          }</button>
 
         {currentView === 'review' && tcResults && (
-           <button className="btn btn-primary" onClick={() => setUploadModalOpen(true)} style={{ marginLeft: '1rem' }}>
-              Upload to {uploadTargetTool ?? formData.selectedTool}
-           </button>
+          <button className="btn btn-primary" onClick={() => setUploadModalOpen(true)} style={{ marginLeft: '1rem' }}>
+            Upload to {uploadTargetTool ?? formData.selectedTool}
+          </button>
         )}
       </div>
     </>
@@ -1876,8 +2251,8 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Send to AI Review */}
-        <button
+        {/* Send to AI Review - HIDDEN */}
+        {/* <button
           className="btn btn-outline"
           onClick={onSendToReview}
           onContextMenu={(e) => {
@@ -1887,7 +2262,7 @@ const App: React.FC = () => {
           style={{ width: '100%', borderColor: 'var(--primary)', color: 'var(--primary)' }}
         >
           <Shield size={16} /> Send to AI Review
-        </button>
+        </button> */}
       </div>
     );
   };
@@ -2130,8 +2505,12 @@ const App: React.FC = () => {
             selectedTool={formData.selectedTool}
             showInsights={showTcInsights}
             onPushToZephyr={() => {
+              if (selectedTcIndices.length === 0) {
+                setToast({ message: 'No test cases selected. Please select at least one test case to push to Zephyr.', type: 'error' });
+                return;
+              }
               setUploadTargetTool('Zephyr');
-              setUploadModalOpen(true);
+              setZephyrModalOpen(true);
             }}
             onSaveToLibrary={handleSaveToLibrary}
             onSendToReview={() => setCurrentView('review')}
@@ -2142,28 +2521,145 @@ const App: React.FC = () => {
 
       {/* Status bar */}
       {tcStatus ? (
-        <div className={tcStatusClass(tcStatus)} style={{ marginTop: '1rem', marginBottom: 0, justifyContent: 'space-between' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {tcStatusIcon(tcStatus)} {tcStatus}
-          </span>
-          {tcDocPath ? (
-            <a
-              className="btn btn-outline"
-              href={`${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tcDocPath)}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Download Results
-            </a>
-          ) : null}
+        <div style={{
+          marginTop: '1rem',
+          marginBottom: 0,
+          borderRadius: '8px',
+          animation: 'slideIn 0.3s ease-out',
+        }}>
+          {tcDocPath && !tcStatus.startsWith('Error:') && (tcStatus.includes('generated') || tcStatus.includes('completed')) ? (
+            // Completion state: show filename with count and download button
+            (() => {
+              // Extract count from status message like "Test cases generated: filename (15 cases)"
+              const countMatch = tcStatus.match(/\((\d+)\s+cases?\)/);
+              const count = countMatch ? countMatch[1] : '';
+              const filename = tcDocPath.split(/[\\/]/).pop() || 'test_cases.xlsx';
+              return (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  borderRadius: '8px',
+                  padding: '1rem',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', flex: 1, minWidth: '200px' }}>
+                    <CheckCircle2 size={20} style={{ color: '#10b981', flexShrink: 0, marginTop: '0.1rem' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      <span style={{
+                        color: '#10b981',
+                        fontWeight: 700,
+                        fontSize: '0.92rem',
+                        letterSpacing: '0.01em',
+                        wordBreak: 'break-all',
+                      }}>
+                        {filename}
+                      </span>
+                      {count && (
+                        <span style={{
+                          color: '#059669',
+                          fontWeight: 600,
+                          fontSize: '0.8rem',
+                          letterSpacing: '0.01em',
+                        }}>
+                          {count} test cases generated
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <a
+                    className="btn"
+                    href={`${BACKEND_API_BASE}/artifact?path=${encodeURIComponent(tcDocPath)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      padding: '0.65rem 1.5rem',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      textDecoration: 'none',
+                      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                      transition: 'all 0.2s ease',
+                      flexShrink: 0,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Download size={16} />
+                    Download Excel
+                  </a>
+                </div>
+              );
+            })()
+          ) : tcStatus.startsWith('Error:') ? (
+            // Pre-generation error: show prominently in red
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '0.75rem',
+              padding: '1rem',
+              borderRadius: '8px',
+              background: 'rgba(225, 29, 72, 0.1)',
+              border: '1px solid rgba(225, 29, 72, 0.35)',
+              color: '#E11D48',
+              fontWeight: 500,
+              animation: 'slideIn 0.3s ease-out',
+            }}>
+              <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
+              <span>{tcStatus}</span>
+            </div>
+          ) : (
+            // Progress / neutral state
+            <div className={tcStatusClass(tcStatus)} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '1rem',
+              borderRadius: '8px',
+            }}>
+              {tcStatusIcon(tcStatus)}
+              <span style={{ fontWeight: 500 }}>{tcStatus}</span>
+            </div>
+          )}
         </div>
       ) : null}
+
+      {/* Post-generation error: appended below the success bar */}
+      {tcPostError && (
+        <div style={{
+          marginTop: '0.5rem',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '0.75rem',
+          padding: '0.75rem 1rem',
+          borderRadius: '8px',
+          background: 'rgba(225, 29, 72, 0.1)',
+          border: '1px solid rgba(225, 29, 72, 0.35)',
+          color: '#E11D48',
+          fontWeight: 500,
+          fontSize: '0.875rem',
+          animation: 'slideIn 0.3s ease-out',
+        }}>
+          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+          <span>{tcPostError}</span>
+        </div>
+      )}
+
 
       {/* Actions */}
       <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start' }}>
         <button className="btn btn-salmon" disabled={tcGapRunning} onClick={() => {
           setTcDocPath('');
           setTcResults(null);
+          setTcPostError('');
           handleRunGapAnalysis();
         }}>
           {tcGapRunning ? <><RefreshCw size={16} className="spin" /> Analyzing...</> : <><ClipboardList size={16} /> Analyze Gaps First</>}
@@ -2174,6 +2670,7 @@ const App: React.FC = () => {
           setTcMdPath('');
           setTcResults(null);
           setTcGapAnalysis(null);
+          setTcPostError('');
           setTcGenerating(true);
           try {
             const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
@@ -2195,8 +2692,7 @@ const App: React.FC = () => {
               const tcCount = d.test_cases?.testCases?.length || 0;
               setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
               setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
-              // Auto-trigger gap analysis for coverage score calculation
-              setTimeout(() => handleRunGapAnalysis(), 300);
+              setTimeout(() => handleRunGapAnalysis(true), 300);
             } else if (d.status === 'success' && !d.test_cases) {
               setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
               setToast({ message: 'Error: No test cases generated', type: 'error' });
@@ -2235,31 +2731,37 @@ const App: React.FC = () => {
       <div className="layout">
         <aside className="sidebar">
           <div className="sidebar-header">
-            COMMAND CENTER 
+            COMMAND CENTER
             <ChevronDown size={14} />
           </div>
           <div className="nav-links">
             {STEPS.map((step) => (
-              <div 
-                key={step.id} 
+              <div
+                key={step.id}
                 className={`nav-item ${currentView === step.id ? 'active' : ''}`}
                 onClick={() => setCurrentView(step.id)}
               >
                 <step.icon size={18} />
                 {step.label}
-                {step.hasArrow && <ChevronDown size={14} style={{marginLeft: 'auto'}} />}
+                {step.hasArrow && <ChevronDown size={14} style={{ marginLeft: 'auto' }} />}
               </div>
             ))}
           </div>
 
           <div className="sidebar-bottom">
             <div className="nav-item">
-              <span style={{display: 'flex', gap: '0.75rem', alignItems: 'center'}}><Settings size={18} /> Settings</span>
+              <span style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}><Settings size={18} /> Settings</span>
             </div>
             <div className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-              <span style={{display: 'flex', gap: '0.75rem', alignItems: 'center'}}>
-                {theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}
+              <span style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
                 {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              </span>
+            </div>
+            <div className="nav-item" onClick={clearConversationState} style={{ color: '#ef4444' }}>
+              <span style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <Eraser size={18} />
+                Clear Conversation
               </span>
             </div>
           </div>
@@ -2268,7 +2770,7 @@ const App: React.FC = () => {
         <main className="main-content">
           {currentView === 'connection' ? renderConnectionView()
             : currentView === 'testcases' ? renderTestCasesView()
-            : renderGeneratorView(STEPS.find(s => s.id === currentView)?.label)}
+              : renderGeneratorView(STEPS.find(s => s.id === currentView)?.label || 'Generator')}
         </main>
       </div>
       {uploadModalOpen && (
@@ -2288,9 +2790,9 @@ const App: React.FC = () => {
           }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop: 0, marginBottom: '1.5rem' }}>Upload to {uploadTargetTool ?? formData.selectedTool}</h2>
 
-            {formData.selectedTool === 'Jira' && (
+            {(uploadTargetTool === 'Zephyr' || formData.selectedTool === 'Jira') && uploadTargetTool !== 'ADO' && uploadTargetTool !== 'TestRail' && uploadTargetTool !== 'QTest' && (
               <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Key *</label>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Jira Project Key * {uploadTargetTool === 'Zephyr' && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>(for Zephyr Scale)</span>}</label>
                 <input
                   type="text"
                   placeholder="e.g., PROJ"
@@ -2305,7 +2807,7 @@ const App: React.FC = () => {
                 />
               </div>
             )}
-            {formData.selectedTool === 'ADO' && (
+            {(uploadTargetTool === 'ADO' || formData.selectedTool === 'ADO') && uploadTargetTool !== 'Zephyr' && uploadTargetTool !== 'TestRail' && uploadTargetTool !== 'QTest' && (
               <>
                 <div style={{ marginBottom: '1rem' }}>
                   <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Name *</label>
@@ -2337,7 +2839,7 @@ const App: React.FC = () => {
                 </div>
               </>
             )}
-            {formData.selectedTool === 'TestRail' && (
+            {(uploadTargetTool === 'TestRail' || formData.selectedTool === 'TestRail') && uploadTargetTool !== 'Zephyr' && uploadTargetTool !== 'ADO' && uploadTargetTool !== 'QTest' && (
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project ID *</label>
                 <input
@@ -2353,7 +2855,7 @@ const App: React.FC = () => {
                 />
               </div>
             )}
-            {formData.selectedTool === 'QTest' && (
+            {(uploadTargetTool === 'QTest' || formData.selectedTool === 'QTest') && uploadTargetTool !== 'Zephyr' && uploadTargetTool !== 'ADO' && uploadTargetTool !== 'TestRail' && (
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project ID *</label>
                 <input
@@ -2367,6 +2869,85 @@ const App: React.FC = () => {
                     border: '1px solid var(--border-color)'
                   }}
                 />
+              </div>
+            )}
+
+            {/* Upload Status Message */}
+            {uploadMessage && (
+              <div style={{
+                padding: '1rem',
+                marginBottom: '1rem',
+                borderRadius: '4px',
+                backgroundColor: uploadMessage.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                border: `1px solid ${uploadMessage.type === 'error' ? '#ef4444' : '#22c55e'}`,
+                color: uploadMessage.type === 'error' ? '#dc2626' : '#16a34a',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem'
+              }}>
+                {uploadMessage.type === 'error' ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                <span>{uploadMessage.text}</span>
+              </div>
+            )}
+
+            {/* List Projects Button */}
+            <button
+              className="btn btn-outline"
+              onClick={handleFetchAvailableProjects}
+              disabled={fetchingProjects || uploadRunning}
+              style={{ width: '100%', marginBottom: '1rem' }}
+            >
+              {fetchingProjects ? <><RefreshCw size={16} className="spin" /> Fetching Projects...</> : <>📋 List Available Projects</>}
+            </button>
+
+            {/* Available Projects Display */}
+            {availableProjects.length > 0 && (
+              <div style={{
+                marginBottom: '1rem',
+                padding: '1rem',
+                backgroundColor: 'var(--bg-secondary)',
+                borderRadius: '4px',
+                maxHeight: '200px',
+                overflowY: 'auto',
+                border: '1px solid var(--border-color)'
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.9rem' }}>Available Projects:</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {availableProjects.map((project: any, idx: number) => (
+                    <div key={idx} style={{
+                      padding: '0.5rem',
+                      backgroundColor: 'var(--bg-main)',
+                      borderRadius: '3px',
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      border: '1px solid var(--border-color)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      transition: 'all 0.2s'
+                    }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'var(--primary)';
+                        e.currentTarget.style.color = 'white';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'var(--bg-main)';
+                        e.currentTarget.style.color = 'inherit';
+                      }}
+                      onClick={() => {
+                        const key = project.key || project.id || project.name;
+                        navigator.clipboard.writeText(key);
+                        setUploadMessage({ type: 'success', text: `Copied: ${key}` });
+                        setTimeout(() => setUploadMessage(null), 2000);
+                      }}>
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{project.name || project.title || project.key}</div>
+                        {project.key && <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>Key: {project.key}</div>}
+                      </div>
+                      <Copy size={14} />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -2388,19 +2969,25 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+      <ZephyrUploadModal
+        isOpen={zephyrModalOpen}
+        onClose={() => setZephyrModalOpen(false)}
+        tcResults={tcResults}
+        selectedIndices={selectedTcIndices}
+      />
       {toast && (
         <div className={`toast-notification toast-notification--${toast.type}`}>
-          {toast.type === 'error' ? <XCircle size={18} /> : 
-           toast.type === 'save' ? <Database size={18} /> : 
-           <CheckCircle2 size={18} />}
+          {toast.type === 'error' ? <XCircle size={18} /> :
+            toast.type === 'save' ? <Database size={18} /> :
+              <CheckCircle2 size={18} />}
           <span>{toast.message}</span>
         </div>
       )}
       {editingTc && (
-        <EditTestCaseModal 
-          tc={editingTc} 
-          onSave={handleSaveEditedTc} 
-          onClose={() => { setEditingTc(null); setEditingTcIndex(null); }} 
+        <EditTestCaseModal
+          tc={editingTc}
+          onSave={handleSaveEditedTc}
+          onClose={() => { setEditingTc(null); setEditingTcIndex(null); }}
         />
       )}
     </>

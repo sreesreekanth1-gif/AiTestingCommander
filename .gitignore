@@ -3,3 +3,8 @@
 .env
 .env.*
 !.env.example
+
+# Generated artifacts
+.tmp/
+tools/__pycache__/
+*.pyc

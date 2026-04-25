@@ -451,6 +451,91 @@ def update_test_cases(payload: UpdatePayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/list-projects")
+def list_projects(payload: dict):
+    """List available projects from the specified ALM tool."""
+    import requests
+
+    tool = payload.get("selectedTool", "")
+    baseUrl = payload.get("baseUrl", "").rstrip("/")
+    username = payload.get("username", "")
+    token = payload.get("token", "")
+
+    if not baseUrl or not token:
+        raise HTTPException(status_code=400, detail="Missing baseUrl or token")
+
+    projects = []
+
+    try:
+        if tool == "Jira":
+            url = f"{baseUrl}/rest/api/3/projects"
+            res = requests.get(url, auth=(username, token), timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                if isinstance(data, list):
+                    projects = [{"key": p.get("key"), "name": p.get("name"), "id": p.get("id")} for p in data]
+                elif isinstance(data, dict) and "values" in data:
+                    projects = [{"key": p.get("key"), "name": p.get("name"), "id": p.get("id")} for p in data.get("values", [])]
+            elif res.status_code == 401 or res.status_code == 403:
+                raise HTTPException(status_code=res.status_code, detail="Invalid Jira credentials (username/token)")
+            elif res.status_code == 404:
+                raise HTTPException(status_code=res.status_code, detail=f"Jira API endpoint not found. Check your base URL: {baseUrl}")
+            else:
+                raise HTTPException(status_code=res.status_code, detail=f"Failed to fetch Jira projects (HTTP {res.status_code})")
+
+        elif tool == "ADO":
+            url = f"{baseUrl}/_apis/projects?api-version=7.1"
+            token_bytes = f":{token}".encode("utf-8")
+            headers = {"Authorization": f"Basic {base64.b64encode(token_bytes).decode('ascii')}"}
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                projects = [{"name": p.get("name"), "id": p.get("id")} for p in data.get("value", [])]
+            elif res.status_code == 401 or res.status_code == 403:
+                raise HTTPException(status_code=res.status_code, detail="Invalid ADO credentials (PAT token)")
+            elif res.status_code == 404:
+                raise HTTPException(status_code=res.status_code, detail=f"ADO API endpoint not found. Check your base URL: {baseUrl}")
+            else:
+                raise HTTPException(status_code=res.status_code, detail=f"Failed to fetch ADO projects (HTTP {res.status_code})")
+
+        elif tool == "TestRail":
+            url = f"{baseUrl}/index.php?/api/v2/get_projects"
+            res = requests.get(url, auth=(username, token), timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                projects = [{"id": p.get("id"), "name": p.get("name"), "key": f"P{p.get('id')}"} for p in data]
+            elif res.status_code == 401 or res.status_code == 403:
+                raise HTTPException(status_code=res.status_code, detail="Invalid TestRail credentials (username/token)")
+            elif res.status_code == 404:
+                raise HTTPException(status_code=res.status_code, detail=f"TestRail API endpoint not found. Check your base URL: {baseUrl}")
+            else:
+                raise HTTPException(status_code=res.status_code, detail=f"Failed to fetch TestRail projects (HTTP {res.status_code})")
+
+        elif tool == "QTest":
+            url = f"{baseUrl}/api/v3/projects"
+            headers = {"Authorization": f"Bearer {token}"}
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                projects = [{"id": p.get("id"), "name": p.get("name")} for p in data.get("items", [])]
+            elif res.status_code == 401 or res.status_code == 403:
+                raise HTTPException(status_code=res.status_code, detail="Invalid QTest credentials (API token)")
+            elif res.status_code == 404:
+                raise HTTPException(status_code=res.status_code, detail=f"QTest API endpoint not found. Check your base URL: {baseUrl}")
+            else:
+                raise HTTPException(status_code=res.status_code, detail=f"Failed to fetch QTest projects (HTTP {res.status_code})")
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported tool: {tool}")
+
+        return {"status": "success", "projects": projects, "count": len(projects)}
+
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/upload-to-alm")
 def upload_to_alm(payload: UploadPayload):
     print(f"Upload request: {payload.selectedTool} for {len(payload.testCases)} test cases")

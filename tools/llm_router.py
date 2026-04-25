@@ -4,7 +4,7 @@
 ║   Routes prompts to the selected LLM provider.          ║
 ║   Zero-hallucination system prompt enforced.            ║
 ╚══════════════════════════════════════════════════════════╝
-Supported: GROQ | Grok | Claude | Anthropic | Ollama
+Supported: GROQ | Grok | Claude | Anthropic | Ollama | OpenAI | OpenRouter
 """
 
 import json
@@ -22,18 +22,15 @@ TOOL_COLUMN_LABEL = {
 }
 
 # ── Zero-Hallucination System Prompt ─────────────────────────────────────────
-SYSTEM_PROMPT = """You are the AntiGravity Test Planner System Pilot operating under the B.L.A.S.T. framework.
+SYSTEM_PROMPT = """You are the AntiGravity Test Planner. STRICT RULES:
+1. ZERO HALLUCINATION: Never invent requirements not in context.
+2. ATOMIC DESIGN: Each test case validates ONE acceptance criterion.
+3. CONCRETE DATA: Use real values, never placeholders like <value>.
+4. JSON ONLY: Response must be valid JSON matching schema exactly.
+5. TRACEABILITY: Every test case maps to a source AC.
+6. STRUCTURED STEPS: Each step has action, expected, testData (N/A if none).
 
-STRICT RULES — NEVER BREAK THESE:
-1. ZERO HALLUCINATION: Do not invent, assume, or infer requirements not explicitly present in the provided context.
-2. ATOMIC DESIGN: Each test case must validate STRICTLY ONE acceptance criterion or behavior.
-3. CONCRETE TEST DATA: Never use placeholders like "<value>" or "example_data". Use real, specific values.
-4. JSON ONLY: Your entire response must be valid, parseable JSON matching the schema exactly.
-5. TRACEABILITY: Every test case must be traceable to an AC from the source requirement.
-6. STRUCTURED STEPS: Generate each test step as an object with action, expected verification, and testData. Use N/A for testData when not applicable. One clear sentence per field.
-
-You extract requirements and generate structured test cases (up to 20 per request) in the exact JSON schema provided. 
-No prose, no markdown, no explanation — just the JSON object."""
+Generate structured test cases (max 20) in the provided JSON schema. No prose, no markdown — only JSON."""
 
 
 def _repair_truncated_json(s: str) -> str:
@@ -161,14 +158,12 @@ RETURN ONLY THIS JSON (no other text):
 
 def _build_user_prompt(context_text: str, issue_id: str, tool: str, 
                        custom_instructions: str = "") -> str:
-    return f"""Analyze the following requirement context and generate structured test cases.
+    # Compressed prompt with abbreviated schema
+    custom_part = f"\nUSER INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""
+    return f"""REQUIREMENT CONTEXT:
+{context_text}{custom_part}
 
-REQUIREMENT CONTEXT:
-{context_text}
-
-{f"USER INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
-
-OUTPUT SCHEMA:
+OUTPUT JSON SCHEMA:
 {{
   "testPlanTitle": "string",
   "selectedTool": "{tool}",
@@ -180,27 +175,22 @@ OUTPUT SCHEMA:
     "technicalDependencies": [],
     "errorHandling": []
   }},
-  "testCases": [
-    {{
-      "testCaseId": "TC-001",
-      "toolTicketId": "{issue_id}",
-      "module": "string",
-      "testCaseTitle": "string",
-      "preconditions": "string",
-      "testSteps": [
-        {{
-          "stepNumber": 1,
-          "action": "string — what the tester does",
-          "expected": "string — verification/expected result for this step",
-          "testData": "string — test data for this step, or N/A if none"
-        }}
-      ],
-      "priority": "High | Medium",
-      "testType": "Functional"
-    }}
-  ]
-}}
-"""
+  "testCases": [{{
+    "testCaseId": "TC-001",
+    "toolTicketId": "{issue_id}",
+    "module": "string",
+    "testCaseTitle": "string",
+    "preconditions": "string",
+    "testSteps": [{{
+      "stepNumber": 1,
+      "action": "string",
+      "expected": "string",
+      "testData": "string or N/A"
+    }}],
+    "priority": "High|Medium|Low",
+    "testType": "Functional|Non-Functional|Regression|Smoke|Sanity|API"
+  }}]
+}}"""
 
 def _request_with_retry(method, url, retries=3, **kwargs):
     """Make an HTTP request with automatic retry on 429 rate-limit errors."""
@@ -236,8 +226,7 @@ def _call_grok(api_key: str, model: str, messages: list) -> str:
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model or "grok-beta", "messages": messages,
               "temperature": 0.1, "max_tokens": 8192},
-        timeout=120
-    )
+     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
 
@@ -310,19 +299,120 @@ def _truncate_context(text: str, max_chars: int) -> str:
     return text[:max_chars] + "\n\n[... context truncated to fit provider limits ...]"
 
 
+def _summarize_context_deterministic(text: str, max_chars: int = 1000) -> str:
+    """
+    Deterministic context summarization without LLM.
+    Extracts key information and compresses text.
+    """
+    if len(text) <= max_chars:
+        return text
+    
+    # Split into lines and extract key sections
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    # Priority keywords to keep
+    priority_keywords = [
+        'acceptance criteria', 'AC:', 'AC.', 'given', 'when', 'then',
+        'user story', 'as a', 'i want', 'so that',
+        'requirement', 'must', 'should', 'shall',
+        'test case', 'scenario', 'feature',
+        'business rule', 'validation', 'error'
+    ]
+    
+    # Extract high-priority lines
+    important_lines = []
+    for line in lines:
+        line_lower = line.lower()
+        # Keep lines with priority keywords or short lines (likely headings)
+        if (any(kw in line_lower for kw in priority_keywords) or 
+            len(line) < 80 or 
+            line.startswith(('#', '##', '###', '-', '*', '•'))):
+            important_lines.append(line)
+    
+    # If we extracted enough important content, use that
+    extracted_text = '\n'.join(important_lines)
+    if len(extracted_text) <= max_chars and len(important_lines) > len(lines) * 0.3:
+        return extracted_text
+    
+    # Fallback: Take first and last parts with ellipsis
+    if len(text) > max_chars * 2:
+        part_size = max_chars // 2 - 50
+        return text[:part_size] + "\n\n[... summarized content ...]\n\n" + text[-part_size:]
+    else:
+        return text[:max_chars]
+
+
+# ── Lite Mode Model Mappings ──────────────────────────────────────────────────
+# Maps full model names to smaller/faster alternatives for lite mode
+LITE_MODEL_MAP = {
+    "llama-3.3-70b-versatile": "llama-3.1-8b-instant",
+    "grok-beta": "grok-beta",  # No smaller alternative
+    "claude-sonnet-4-20250514": "claude-3-5-haiku-20241022",
+    "claude-3-5-sonnet-latest": "claude-3-5-haiku-20241022",
+    "llama3": "llama3.2:3b",
+    "llama3.1": "llama3.2:3b",
+    "google/gemini-pro-1.5": "google/gemini-flash-1.5",
+}
+
+def _get_model_for_mode(config: dict) -> tuple:
+    """
+    Returns (model_name, is_lite_mode) based on config and context size.
+    Supports explicit lite mode selection via model name prefix or config.
+    """
+    model = config.get("llmModel", "").strip() or None
+    provider = config.get("llmProvider", "GROQ")
+    
+    # Check for explicit lite mode indicator
+    lite_mode = config.get("liteMode", False)
+    
+    if not model:
+        # Use provider defaults
+        if provider == "GROQ":
+            model = "llama-3.3-70b-versatile" if not lite_mode else "llama-3.1-8b-instant"
+        elif provider == "Grok":
+            model = "grok-beta"
+        elif provider in ["Claude", "Anthropic"]:
+            model = "claude-sonnet-4-20250514" if not lite_mode else "claude-3-5-haiku-20241022"
+        elif provider == "Ollama":
+            model = "llama3" if not lite_mode else "llama3.2:3b"
+        elif provider == "OpenRouter":
+            model = "google/gemini-pro-1.5" if not lite_mode else "google/gemini-flash-1.5"
+    
+    # Auto-enable lite mode for very large contexts (>5000 chars)
+    if not lite_mode and model in LITE_MODEL_MAP:
+        lite_mode = True
+    
+    # Map to lite model if needed
+    if lite_mode and model in LITE_MODEL_MAP:
+        lite_model = LITE_MODEL_MAP[model]
+        if lite_model != model:
+            print(f"[LLM-Router] Lite mode enabled: {model} -> {lite_model}")
+            model = lite_model
+    
+    return model, lite_mode
+
+
 def route_to_llm(config: dict, context_text: str, custom_instructions: str = "") -> dict:
     provider = config.get("llmProvider", "GROQ")
     api_key  = config.get("llmApiKey", "")
     endpoint = config.get("llmEndpoint", "http://127.0.0.1:11434")
-    model    = config.get("llmModel", "").strip() or None
     tool     = config.get("selectedTool", "Jira")
     issue_id = config.get("issueId", "UNKNOWN")
+
+    # Get model with lite mode support
+    model, lite_mode = _get_model_for_mode(config)
 
     # Provider-specific context limits (approximate safe char limits)
     # GROQ free-tier enforces strict payload size — keep conservatively low
     provider_limits = {"GROQ": 3500, "Grok": 32000, "Claude": 100000, "Anthropic": 100000, "Ollama": 16000, "OpenRouter": 64000}
     max_chars = provider_limits.get(provider, 100000)
-    context_text = _truncate_context(context_text, max_chars)
+    
+    # Apply context summarization if enabled (lite mode or very large context)
+    if lite_mode or len(context_text) > 5000:
+        print(f"[LLM-Router] Applying deterministic summarization for lite mode or large context.")
+        context_text = _summarize_context_deterministic(context_text, max_chars)
+    else:
+        context_text = _truncate_context(context_text, max_chars)
 
     def _build_messages(ctx: str) -> list:
         prompt = _build_user_prompt(ctx, issue_id, tool, custom_instructions)
