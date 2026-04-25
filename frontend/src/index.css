@@ -392,6 +392,7 @@ body {
 
 .status-indicator {
   margin-top: 1.5rem;
+  margin-left: 150px;
   padding: 1rem;
   border-radius: 8px;
   display: flex;
@@ -1766,6 +1767,9 @@ body {
     grid-template-columns: 1fr;
   }
   .form-group + p {
+    margin-left: 0;
+  }
+  .status-indicator {
     margin-left: 0;
   }
 }
