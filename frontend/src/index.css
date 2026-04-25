@@ -284,17 +284,20 @@ body {
 
 /* Forms */
 .form-group {
-  margin-bottom: 0.625rem;
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.875rem;
 }
 
 .form-group label {
-  display: block;
   font-size: 0.72rem;
   font-weight: 800;
   text-transform: uppercase;
   color: var(--text-main);
-  margin-bottom: 0.35rem;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 .form-control {
@@ -310,6 +313,11 @@ body {
 .form-control:focus {
   outline: none;
   border-color: var(--primary);
+}
+
+.form-group + p {
+  margin-left: 150px;
+  padding-right: 0;
 }
 
 .actions-row {
@@ -1753,5 +1761,11 @@ body {
   .tc-twin-col,
   .card-grid {
     grid-template-columns: 1fr;
+  }
+  .form-group {
+    grid-template-columns: 1fr;
+  }
+  .form-group + p {
+    margin-left: 0;
   }
 }
