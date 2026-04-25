@@ -1842,46 +1842,38 @@ const App: React.FC = () => {
       <p className="page-subtitle">Fetch User Story dynamically from {formData.selectedTool} or define explicit generation parameters.</p>
 
       <div className="twin-col">
-        {/* Left Side -> Controls */}
-        <div className="left-controls" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div className="card" style={{ padding: '1.5rem' }}>
-            <div className="card-header" style={{ margin: '0 0 1rem 0' }}>
-              <div className="card-title" style={{ fontSize: '0.95rem' }}>Requirement Source</div>
-            </div>
+        {/* Left — Requirement Source */}
+        <div className="card" style={{ padding: '1.5rem' }}>
+          <div className="card-header" style={{ margin: '0 0 1.25rem 0' }}>
+            <div className="card-title" style={{ fontSize: '0.95rem' }}>Requirement Source</div>
+          </div>
 
-            <div className="form-group">
-              <label>{getPlatformIssueId(formData.selectedTool).label}</label>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <input type="text" name="issueId" value={formData.issueId} onChange={handleChange} className="form-control" placeholder={getPlatformIssueId(formData.selectedTool).placeholder} style={{ flex: 1 }} />
-                <button
-                  className="btn btn-primary"
-                  title="Fetch issue details"
-                  style={{ width: '2.4rem', height: '2.4rem', padding: '0', flexShrink: 0, borderRadius: '6px' }}
-                  disabled={!formData.issueId.trim() || issueFetching}
-                  onClick={handleFetchIssue}
-                >
-                  {issueFetching ? <RefreshCw size={18} className="spin" /> : <Search size={18} />}
-                </button>
-              </div>
-            </div>
-            <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: '1rem 0' }}>OR PASTE BELOW</div>
-            <div className="form-group">
-              <textarea className="form-control" rows={3} placeholder="Provide manual contextual details here for the LLM payload..." />
+          <div className="form-group">
+            <label>{getPlatformIssueId(formData.selectedTool).label}</label>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input type="text" name="issueId" value={formData.issueId} onChange={handleChange} className="form-control" placeholder={getPlatformIssueId(formData.selectedTool).placeholder} style={{ flex: 1 }} />
+              <button
+                className="btn btn-primary"
+                title="Fetch issue details"
+                style={{ width: '2.4rem', height: '2.4rem', padding: '0', flexShrink: 0, borderRadius: '6px' }}
+                disabled={!formData.issueId.trim() || issueFetching}
+                onClick={handleFetchIssue}
+              >
+                {issueFetching ? <RefreshCw size={18} className="spin" /> : <Search size={18} />}
+              </button>
             </div>
           </div>
 
-          <div className="card" style={{ padding: '1.5rem', borderColor: 'var(--primary)' }}>
-            <div className="card-header" style={{ margin: '0 0 1rem 0' }}>
-              <div className="card-title" style={{ fontSize: '0.95rem' }}>Generation Instructions</div>
-            </div>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Agent will utilize {formData.llmProvider} to execute zero-hallucination extraction mapping to the Test Plan structure.
-            </p>
+          <div className="tc-or-divider">OR PASTE BELOW</div>
+
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>Manual Requirements</label>
+            <textarea className="form-control" rows={5} placeholder="Provide manual contextual details here for the LLM payload..." />
           </div>
         </div>
 
-        {/* Right Side -> Preview Pane (Gap Analysis / Issue Details) */}
-        <div className="preview-pane" style={(tpGapAnalysis || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', maxHeight: '500px', overflowY: 'auto' } : {}}>
+        {/* Right — Requirement Preview / Gap Analysis */}
+        <div className="preview-pane" style={(tpGapAnalysis || issueDetails) ? { alignItems: 'stretch', justifyContent: 'flex-start', textAlign: 'left', padding: '1.25rem', overflowY: 'auto' } : {}}>
           {tpGapAnalysis ? (
             <GapAnalysisPreview analysis={tpGapAnalysis} />
           ) : issueDetails ? (
@@ -1894,6 +1886,15 @@ const App: React.FC = () => {
             </>
           )}
         </div>
+      </div>
+
+      <div className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
+        <div className="card-header" style={{ margin: '0 0 1rem 0' }}>
+          <div className="card-title" style={{ fontSize: '0.95rem' }}>Generation Instructions</div>
+        </div>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          Agent will utilize {formData.llmProvider} to execute zero-hallucination extraction mapping to the Test Plan structure.
+        </p>
       </div>
 
       {currentView === 'review' && tcResults && (
@@ -1939,7 +1940,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {tpStatus ? (
+      {tpStatus && (tpDocPath || tpStatus.startsWith('Error:')) ? (
         <div style={{
           marginTop: '1rem',
           marginBottom: 0,
@@ -1999,7 +2000,7 @@ const App: React.FC = () => {
               </a>
             </div>
           ) : (
-            // Progress state: show step indicator
+            // Error state
             <div className={getStatusClass(tpStatus)} style={{
               display: 'flex',
               alignItems: 'center',
@@ -2014,7 +2015,20 @@ const App: React.FC = () => {
         </div>
       ) : null}
 
-      <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start' }}>
+      <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start', alignItems: 'center' }}>
+        {tpStatus && !tpDocPath && !tpStatus.startsWith('Error:') && (
+          <div className={getStatusClass(tpStatus)} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            padding: '0.5rem 0.875rem',
+            borderRadius: '8px',
+            marginRight: '1rem',
+          }}>
+            {renderStatusIcon(tpStatus)}
+            <span style={{ fontWeight: 500 }}>{tpStatus}</span>
+          </div>
+        )}
         <button className="btn btn-salmon" disabled={tpGapRunning} onClick={async () => {
           setTpGapAnalysis(null);
           setTpDocPath('');
@@ -2520,7 +2534,7 @@ const App: React.FC = () => {
       )}
 
       {/* Status bar */}
-      {tcStatus ? (
+      {tcStatus && (tcDocPath || tcStatus.startsWith('Error:')) ? (
         <div style={{
           marginTop: '1rem',
           marginBottom: 0,
@@ -2599,8 +2613,8 @@ const App: React.FC = () => {
                 </div>
               );
             })()
-          ) : tcStatus.startsWith('Error:') ? (
-            // Pre-generation error: show prominently in red
+          ) : (
+            // Error state
             <div style={{
               display: 'flex',
               alignItems: 'flex-start',
@@ -2615,18 +2629,6 @@ const App: React.FC = () => {
             }}>
               <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
               <span>{tcStatus}</span>
-            </div>
-          ) : (
-            // Progress / neutral state
-            <div className={tcStatusClass(tcStatus)} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              padding: '1rem',
-              borderRadius: '8px',
-            }}>
-              {tcStatusIcon(tcStatus)}
-              <span style={{ fontWeight: 500 }}>{tcStatus}</span>
             </div>
           )}
         </div>
@@ -2655,7 +2657,28 @@ const App: React.FC = () => {
 
 
       {/* Actions */}
-      <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start' }}>
+      <div className="actions-row" style={{
+        ...(!tcStatus || tcDocPath || tcStatus.startsWith('Error:') ? {
+          borderTop: '1px solid var(--border-color)',
+          paddingTop: '0.875rem',
+          marginTop: '0.875rem',
+        } : {}),
+        justifyContent: 'flex-start',
+        alignItems: 'center'
+      }}>
+        {tcStatus && !tcDocPath && !tcStatus.startsWith('Error:') && (
+          <div className={tcStatusClass(tcStatus)} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            padding: '0.5rem 0.875rem',
+            borderRadius: '8px',
+            marginRight: '1rem',
+          }}>
+            {tcStatusIcon(tcStatus)}
+            <span style={{ fontWeight: 500 }}>{tcStatus}</span>
+          </div>
+        )}
         <button className="btn btn-salmon" disabled={tcGapRunning} onClick={() => {
           setTcDocPath('');
           setTcResults(null);
