@@ -325,7 +325,6 @@ body {
   gap: 1rem;
   margin-top: auto;
   padding-top: 1rem;
-  margin-left: 150px;
 }
 
 .btn {
@@ -370,8 +369,8 @@ body {
 /* Two column generation layout */
 .twin-col {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  grid-template-columns: 300px 1fr;
+  gap: 1.25rem;
   flex: 1;
   min-height: 0;
 }
@@ -385,7 +384,6 @@ body {
   justify-content: center;
   flex: 1;
   min-height: 180px;
-  max-height: 500px;
   background: var(--bg-card);
   text-align: center;
   color: var(--text-muted);
@@ -424,7 +422,7 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Test Cases view - aligned with twin-col */
+/* Test Cases view */
 .tc-twin-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
