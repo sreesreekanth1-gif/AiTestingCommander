@@ -11,6 +11,7 @@ import json
 import time
 import requests
 import re
+import os
 
 # ── Tool ID Column Label per gemini.md ───────────────────────────────────────
 TOOL_COLUMN_LABEL = {
@@ -156,12 +157,37 @@ RETURN ONLY THIS JSON (no other text):
   ]
 }}"""
 
-def _build_user_prompt(context_text: str, issue_id: str, tool: str, 
-                       custom_instructions: str = "") -> str:
-    # Compressed prompt with abbreviated schema
-    custom_part = f"\nUSER INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""
-    return f"""REQUIREMENT CONTEXT:
-{context_text}{custom_part}
+def _extract_description_from_context(context_text: str) -> str:
+    """Extract Description field from formatted context text."""
+    for line in context_text.split('\n'):
+        if line.startswith('Description:'):
+            return line.replace('Description:', '').strip()
+    return context_text
+
+
+def _load_custom_prompt(context_text: str) -> str:
+    """Load CustomTestCasesPrompt.txt and inject description context."""
+    prompt_path = os.path.join(os.path.dirname(__file__), "..", "Templates", "CustomTestCasesPrompt.txt")
+    try:
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            prompt = f.read()
+        description = _extract_description_from_context(context_text)
+        prompt = prompt.replace('[INSERT USER STORY HERE]', description if description else context_text)
+        return prompt
+    except FileNotFoundError:
+        raise RuntimeError(f"CustomTestCasesPrompt.txt not found at {prompt_path}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to load custom prompt: {e}")
+
+
+def _build_user_prompt(context_text: str, issue_id: str, tool: str,
+                       custom_instructions: str = "", use_custom_prompt: bool = False) -> str:
+    if use_custom_prompt:
+        base_prompt = _load_custom_prompt(context_text)
+    else:
+        # Compressed prompt with abbreviated schema
+        base_prompt = f"""REQUIREMENT CONTEXT:
+{context_text}
 
 OUTPUT JSON SCHEMA:
 {{
@@ -191,6 +217,34 @@ OUTPUT JSON SCHEMA:
     "testType": "Functional|Non-Functional|Regression|Smoke|Sanity|API"
   }}]
 }}"""
+
+    custom_part = f"\n\nUSER INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""
+
+    if use_custom_prompt:
+        return f"""{base_prompt}{custom_part}
+
+RETURN ONLY VALID JSON matching this schema:
+{{
+  "testPlanTitle": "string",
+  "selectedTool": "{tool}",
+  "testCases": [{{
+    "testCaseId": "TC-001",
+    "toolTicketId": "{issue_id}",
+    "module": "string",
+    "testCaseTitle": "string",
+    "preconditions": "string",
+    "testSteps": [{{
+      "stepNumber": 1,
+      "action": "string",
+      "expected": "string",
+      "testData": "string or N/A"
+    }}],
+    "priority": "High|Medium|Low",
+    "testType": "Functional|Non-Functional|Regression|Smoke|Sanity|API"
+  }}]
+}}"""
+    else:
+        return f"{base_prompt}{custom_part}"
 
 def _request_with_retry(method, url, retries=3, **kwargs):
     """Make an HTTP request with automatic retry on 429 rate-limit errors."""
@@ -392,7 +446,7 @@ def _get_model_for_mode(config: dict) -> tuple:
     return model, lite_mode
 
 
-def route_to_llm(config: dict, context_text: str, custom_instructions: str = "") -> dict:
+def route_to_llm(config: dict, context_text: str, custom_instructions: str = "", use_custom_prompt: bool = False) -> dict:
     provider = config.get("llmProvider", "GROQ")
     api_key  = config.get("llmApiKey", "")
     endpoint = config.get("llmEndpoint", "http://127.0.0.1:11434")
@@ -406,7 +460,7 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "")
     # GROQ free-tier enforces strict payload size — keep conservatively low
     provider_limits = {"GROQ": 3500, "Grok": 32000, "Claude": 100000, "Anthropic": 100000, "Ollama": 16000, "OpenRouter": 64000}
     max_chars = provider_limits.get(provider, 100000)
-    
+
     # Apply context summarization if enabled (lite mode or very large context)
     if lite_mode or len(context_text) > 5000:
         print(f"[LLM-Router] Applying deterministic summarization for lite mode or large context.")
@@ -415,7 +469,7 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "")
         context_text = _truncate_context(context_text, max_chars)
 
     def _build_messages(ctx: str) -> list:
-        prompt = _build_user_prompt(ctx, issue_id, tool, custom_instructions)
+        prompt = _build_user_prompt(ctx, issue_id, tool, custom_instructions, use_custom_prompt)
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
@@ -437,8 +491,9 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "")
         print(f"[LLM-Router] Payload trimmed to fit {provider} limit. Context={len(context_text)} chars.")
 
     user_prompt = messages[1]["content"]
+    custom_indicator = " | CUSTOM_PROMPT" if use_custom_prompt else ""
     print(f"[LLM-Router] Provider={provider} | Context={len(context_text)} chars | "
-          f"Prompt={len(user_prompt)} chars | Total payload={payload_size} chars ({payload_size/1024:.1f} KB)")
+          f"Prompt={len(user_prompt)} chars | Total payload={payload_size} chars ({payload_size/1024:.1f} KB){custom_indicator}")
 
     def _dispatch(msgs: list) -> str:
         if provider == "GROQ":               return _call_groq(api_key, model, msgs)

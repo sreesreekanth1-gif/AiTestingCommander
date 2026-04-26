@@ -2664,54 +2664,7 @@ const App: React.FC = () => {
           {tcGapRunning ? <><RefreshCw size={16} className="spin" /> Analyzing...</> : <><ClipboardList size={16} /> Analyze Gaps First</>}
         </button>
 
-        <button className="btn btn-outline red" disabled={tcGeneratingStandard} onClick={async () => {
-          setTcDocPath('');
-          setTcMdPath('');
-          setTcResults(null);
-          setTcGapAnalysis(null);
-          setTcPostError('');
-          setTcGeneratingStandard(true);
-          try {
-            const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ...formData,
-                ...tcFormData,
-                coverageInstructions: 'Ensure 100% requirement coverage: cover happy path, negative, boundary, and edge cases for every stated acceptance criterion.'
-              }),
-            });
-            const d = await res.json().catch(() => ({}));
-            if (d.status === 'success' && d.test_cases) {
-              const parts = (d.document_path || '').split(/[\\/]/);
-              const filename = parts[parts.length - 1] || 'test_cases.xlsx';
-              setTcDocPath(d.document_path || '');
-              setTcMdPath(d.md_path || '');
-              setTcResults(d.test_cases);
-              const tcCount = d.test_cases?.testCases?.length || 0;
-              setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
-              setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
-              setTimeout(() => handleRunGapAnalysis(true), 300);
-            } else if (d.status === 'success' && !d.test_cases) {
-              setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
-              setToast({ message: 'Error: No test cases generated', type: 'error' });
-            } else {
-              const err = d.detail || d.message || 'Generation failed.';
-              setTcStatus(`Error: ${err}`);
-              setToast({ message: `Generation Error: ${err}`, type: 'error' });
-            }
-          } catch (e) {
-            const errMsg = e instanceof Error ? e.message : 'Unknown error';
-            setTcStatus(`Error: ${errMsg}. Is the API server running?`);
-            setToast({ message: `Network Error: ${errMsg}`, type: 'error' });
-          } finally {
-            setTcGeneratingStandard(false);
-          }
-        }}>
-          {tcGeneratingStandard ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate Test Cases</>}
-        </button>
-
-        <button className="btn btn-outline blue" disabled={tcGeneratingCustom} onClick={async () => {
+        <button className="btn btn-outline red" disabled={tcGeneratingCustom} onClick={async () => {
           setTcDocPath('');
           setTcMdPath('');
           setTcResults(null);
@@ -2756,7 +2709,54 @@ const App: React.FC = () => {
             setTcGeneratingCustom(false);
           }
         }}>
-          {tcGeneratingCustom ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate Custom AI Test Cases</>}
+          {tcGeneratingCustom ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate AI Test Cases</>}
+        </button>
+
+        <button style={{ display: 'none' }} className="btn btn-outline red" disabled={tcGeneratingStandard} onClick={async () => {
+          setTcDocPath('');
+          setTcMdPath('');
+          setTcResults(null);
+          setTcGapAnalysis(null);
+          setTcPostError('');
+          setTcGeneratingStandard(true);
+          try {
+            const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...formData,
+                ...tcFormData,
+                coverageInstructions: 'Ensure 100% requirement coverage: cover happy path, negative, boundary, and edge cases for every stated acceptance criterion.'
+              }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (d.status === 'success' && d.test_cases) {
+              const parts = (d.document_path || '').split(/[\\/]/);
+              const filename = parts[parts.length - 1] || 'test_cases.xlsx';
+              setTcDocPath(d.document_path || '');
+              setTcMdPath(d.md_path || '');
+              setTcResults(d.test_cases);
+              const tcCount = d.test_cases?.testCases?.length || 0;
+              setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
+              setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
+              setTimeout(() => handleRunGapAnalysis(true), 300);
+            } else if (d.status === 'success' && !d.test_cases) {
+              setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
+              setToast({ message: 'Error: No test cases generated', type: 'error' });
+            } else {
+              const err = d.detail || d.message || 'Generation failed.';
+              setTcStatus(`Error: ${err}`);
+              setToast({ message: `Generation Error: ${err}`, type: 'error' });
+            }
+          } catch (e) {
+            const errMsg = e instanceof Error ? e.message : 'Unknown error';
+            setTcStatus(`Error: ${errMsg}. Is the API server running?`);
+            setToast({ message: `Network Error: ${errMsg}`, type: 'error' });
+          } finally {
+            setTcGeneratingStandard(false);
+          }
+        }}>
+          {tcGeneratingStandard ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate Test Cases</>}
         </button>
       </div>
 

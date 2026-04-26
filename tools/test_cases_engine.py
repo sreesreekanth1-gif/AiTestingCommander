@@ -116,7 +116,8 @@ class TestCasesEngine:
 
     def generate_test_cases_data(self, context_text: str) -> dict:
         custom = self.config.get("customInstructions", "")
-        data = route_to_llm(self.config, context_text, custom_instructions=custom)
+        is_custom = self.config.get("isCustom", False)
+        data = route_to_llm(self.config, context_text, custom_instructions=custom, use_custom_prompt=is_custom)
 
         # Normalize and enrich test cases
         test_cases = data.get("testCases", [])
