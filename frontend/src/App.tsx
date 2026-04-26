@@ -765,9 +765,6 @@ const EditTestCaseModal: React.FC<{
           <div className="form-group">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
               <label style={{ marginBottom: 0, fontSize: '0.62rem', color: 'var(--text-main)' }}>Test Steps</label>
-              <button onClick={() => insertStepBefore(0)} className="btn btn-primary compact" style={{ height: '32px' }}>
-                <Plus size={14} /> Add First Step
-              </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
               {edited.testSteps.map((step, idx) => (
@@ -1061,7 +1058,6 @@ const App: React.FC = () => {
     setTcGapAnalysis(null);
     setTcGapRunning(false);
     setTcGapStepIndex(0);
-    setTcGenerating(false);
     setTcGenerateStepIndex(0);
     setTcCoverageScore(null);
     setTcSaveRunning(false);
@@ -1125,7 +1121,8 @@ const App: React.FC = () => {
   const [tcGapAnalysis, setTcGapAnalysis] = useState<Analysis | null>(null);
   const [tcGapRunning, setTcGapRunning] = useState(false);
   const [tcGapStepIndex, setTcGapStepIndex] = useState(0);
-  const [tcGenerating, setTcGenerating] = useState(false);
+  const [tcGeneratingStandard, setTcGeneratingStandard] = useState(false);
+  const [tcGeneratingCustom, setTcGeneratingCustom] = useState(false);
   const [tcGenerateStepIndex, setTcGenerateStepIndex] = useState(0);
   const [tcMdPath, setTcMdPath] = useState('');
   const [tcCoverageScore, setTcCoverageScore] = useState<number | null>(null);
@@ -1254,7 +1251,7 @@ const App: React.FC = () => {
 
   // Test Cases generation step ticker
   useEffect(() => {
-    if (!tcGenerating) return undefined;
+    if (!tcGeneratingStandard && !tcGeneratingCustom) return undefined;
     const steps = getTestCaseSteps();
     setTcGenerateStepIndex(0);
     setTcStatus(`Step 1/${steps.length}: ${steps[0]}`);
@@ -1266,7 +1263,7 @@ const App: React.FC = () => {
       });
     }, 1500);
     return () => window.clearInterval(id);
-  }, [tcGenerating]);
+  }, [tcGeneratingStandard, tcGeneratingCustom]);
 
   // AI connection test step ticker
   useEffect(() => {
@@ -1521,7 +1518,7 @@ const App: React.FC = () => {
           </div>
 
           {aiStatus && aiStatus !== 'Connection Successful!' && (
-            <div className={getStatusClass(aiStatus)} style={{ marginBottom: '1rem', marginTop: 0 }}>
+            <div className={getStatusClass(aiStatus)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.5rem' }}>
               {renderStatusIcon(aiStatus)} {aiStatus}
             </div>
           )}
@@ -1587,7 +1584,7 @@ const App: React.FC = () => {
           })()}
 
           {almStatus && almStatus !== 'Connection Successful!' && (
-            <div className={getStatusClass(almStatus)} style={{ marginBottom: '1rem', marginTop: 0 }}>
+            <div className={getStatusClass(almStatus)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.5rem' }}>
               {renderStatusIcon(almStatus)} {almStatus}
             </div>
           )}
@@ -1697,6 +1694,7 @@ const App: React.FC = () => {
         setTcCoverageScore(Math.min(raw, 95));
         setTcStatus('Gap analysis completed.');
         setToast({ message: 'Gap analysis completed successfully.', type: 'success' });
+        setShowTcInsights(false);
       } else {
         const err = data.detail || data.message || 'Gap analysis failed.';
         if (postGeneration) {
@@ -2666,13 +2664,13 @@ const App: React.FC = () => {
           {tcGapRunning ? <><RefreshCw size={16} className="spin" /> Analyzing...</> : <><ClipboardList size={16} /> Analyze Gaps First</>}
         </button>
 
-        <button className="btn btn-outline red" disabled={tcGenerating} onClick={async () => {
+        <button className="btn btn-outline red" disabled={tcGeneratingStandard} onClick={async () => {
           setTcDocPath('');
           setTcMdPath('');
           setTcResults(null);
           setTcGapAnalysis(null);
           setTcPostError('');
-          setTcGenerating(true);
+          setTcGeneratingStandard(true);
           try {
             const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
               method: 'POST',
@@ -2707,10 +2705,58 @@ const App: React.FC = () => {
             setTcStatus(`Error: ${errMsg}. Is the API server running?`);
             setToast({ message: `Network Error: ${errMsg}`, type: 'error' });
           } finally {
-            setTcGenerating(false);
+            setTcGeneratingStandard(false);
           }
         }}>
-          {tcGenerating ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate Test Cases</>}
+          {tcGeneratingStandard ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate Test Cases</>}
+        </button>
+
+        <button className="btn btn-outline blue" disabled={tcGeneratingCustom} onClick={async () => {
+          setTcDocPath('');
+          setTcMdPath('');
+          setTcResults(null);
+          setTcGapAnalysis(null);
+          setTcPostError('');
+          setTcGeneratingCustom(true);
+          try {
+            const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...formData,
+                ...tcFormData,
+                isCustom: true,
+                coverageInstructions: 'Ensure 100% requirement coverage: cover happy path, negative, boundary, and edge cases for every stated acceptance criterion.'
+              }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (d.status === 'success' && d.test_cases) {
+              const parts = (d.document_path || '').split(/[\\/]/);
+              const filename = parts[parts.length - 1] || 'test_cases.xlsx';
+              setTcDocPath(d.document_path || '');
+              setTcMdPath(d.md_path || '');
+              setTcResults(d.test_cases);
+              const tcCount = d.test_cases?.testCases?.length || 0;
+              setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
+              setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
+              setTimeout(() => handleRunGapAnalysis(true), 300);
+            } else if (d.status === 'success' && !d.test_cases) {
+              setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
+              setToast({ message: 'Error: No test cases generated', type: 'error' });
+            } else {
+              const err = d.detail || d.message || 'Generation failed.';
+              setTcStatus(`Error: ${err}`);
+              setToast({ message: `Generation Error: ${err}`, type: 'error' });
+            }
+          } catch (e) {
+            const errMsg = e instanceof Error ? e.message : 'Unknown error';
+            setTcStatus(`Error: ${errMsg}. Is the API server running?`);
+            setToast({ message: `Network Error: ${errMsg}`, type: 'error' });
+          } finally {
+            setTcGeneratingCustom(false);
+          }
+        }}>
+          {tcGeneratingCustom ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate Custom AI Test Cases</>}
         </button>
       </div>
 

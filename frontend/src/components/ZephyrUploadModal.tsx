@@ -37,6 +37,7 @@ interface TestCase {
 }
 
 interface TCResult {
+  testCaseTitle?: string;
   testCases: Array<{
     testCaseId: string;
     testCaseTitle: string;
@@ -46,7 +47,7 @@ interface TCResult {
 interface ZephyrUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  tcResults?: TCResult;
+  tcResults?: TCResult | null;
   selectedIndices?: number[];
 }
 
