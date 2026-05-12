@@ -328,6 +328,23 @@ body {
   align-items: flex-start;
 }
 
+/* Connection Settings: compact spacing so buttons visible on launch */
+.connection-grid .card {
+  padding: 0.875rem;
+}
+
+.connection-grid .card-header {
+  margin-bottom: 0.5rem;
+}
+
+.connection-grid .form-group {
+  margin-bottom: 0.5rem;
+}
+
+.connection-grid .actions-row {
+  padding-top: 0.5rem;
+}
+
 .btn {
   padding: 0.65rem 1.25rem;
   border-radius: 6px;

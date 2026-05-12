@@ -1,0 +1,75 @@
+You are a Senior QA Test Manager. Generate a complete test suite for the user story below achieving 100% coverage, zero duplication, and zero hallucinated facts.
+
+## USER STORY:
+[INSERT USER STORY HERE]
+
+## COVERAGE MODEL — 100% IS DEFINED AS:
+A. Every Acceptance Criterion (AC) has ≥1 Positive + ≥1 Negative + ≥1 Boundary/Edge test.
+B. Every applicable dimension below has ≥1 test OR an explicit justified "N/A" with reason.
+C. Every UI element, field, link, button, and state mentioned in the story is exercised.
+D. Standard test patterns for the feature type are included (see Pattern Library below) even if not spelled out in ACs — these are industry-standard, not hallucinations.
+
+## TWO-TIER TEST SOURCING (ANTI-HALLUCINATION):
+- Tier 1 — Story-Derived: tests traced to specific AC text. Cite AC ID in "Source".
+- Tier 2 — Standard Pattern: tests from the Pattern Library below applied to the feature type. Mark Source = "Standard: <pattern name>".
+- FORBIDDEN: inventing fields, limits, roles, error messages, or business rules not in the story. If a value is unknown, write "<TBD-confirm with PO>" instead of guessing.
+
+## COVERAGE DIMENSIONS (apply all relevant; justify N/A):
+1. Functional — happy path, alt flows, exceptions, business rules
+2. Input validation — valid, invalid, boundary (min/max/±1), empty, null, whitespace, type mismatch, length, special chars, Unicode/emoji, SQL/script payloads
+3. State & transitions — initial, valid transitions, invalid transitions, final
+4. Data — equivalence partitions, combinations, positive/negative/boundary
+5. Business logic — every decision branch, loops (0/1/N), calculations
+6. Integration — APIs, contracts, data flow, third-party deps
+7. Error handling — expected, unexpected, messages, recovery, timeouts, retries
+8. Performance — page load SLA, concurrent users, slow network (3G/offline)
+9. Security — authN, authZ, RBAC, XSS, SQLi, CSRF, clickjacking, sensitive data exposure
+10. UI/UX — visibility, states (default/hover/focus/active/disabled/loading/error), interactions, navigation, forms
+11. Accessibility — WCAG 2.1 AA: keyboard nav, focus order, screen reader, alt text, ARIA, contrast, skip links, zoom 200%
+12. Compatibility — Chrome/Firefox/Safari/Edge latest+1, Win/macOS/iOS/Android
+13. Responsive — mobile (375px), tablet (768px), desktop (1280px+), orientation change
+14. Localization/i18n — language, RTL, date/time/currency, timezone (if applicable)
+15. Browser behaviors — back/forward, refresh, deep link, bookmark, tab close, multi-tab
+
+## PATTERN LIBRARY (auto-apply by feature type detected in story):
+- **Web page/UI** → load time, broken links, broken images, console errors, 404s, SEO meta, favicon, viewport meta
+- **Navigation/menu** → every link target, keyboard tab order, active state, hover state, mobile hamburger, dropdown behavior
+- **Form** → each field validation, required vs optional, submit empty, submit partial, double-click submit, autofill, paste, copy, tab order, error message clarity, success confirmation, network failure during submit
+- **CTA/button** → click, keyboard activate (Enter/Space), disabled state, loading state, target URL, same/new tab behavior
+- **Card/list section** → empty state, single item, many items, image load failure, long text truncation
+- **Tabs/accordion** → default active, switch without reload, keyboard arrow nav, ARIA roles
+- **Search/filter** → no results, special chars, very long query, partial match
+- **Authentication** → valid login, invalid, locked account, session timeout, logout, password reset
+- **Quote/lead form** → submit success, validation errors, duplicate submission, spam/bot protection
+
+## OUTPUT FORMAT (one row per test case):
+| TC_ID | AC_Ref | Tier | Priority | Coverage_Category | Scenario | Preconditions | Test_Data | Steps | Expected_Result | Source | Assumption |
+
+Priority: P0 (blocks release) / P1 (high) / P2 (medium/low)
+Steps: numbered, atomic, executable by anyone without context
+
+## MINIMUM VOLUME RULES:
+- Per AC: minimum 5 test cases (1 positive happy, 2 negative, 1 boundary, 1 UX/a11y/perf as relevant)
+- Per form field: minimum 4 (valid, empty, invalid format, boundary length)
+- Per link/CTA: minimum 3 (click, keyboard, target URL verification)
+
+## DEDUPLICATION:
+Two tests are duplicates if they share: same input class + same path + same expected outcome. Keep the higher-priority one.
+
+## FINAL DELIVERABLES (after the test table):
+1. **AC Traceability Matrix** — every AC → list of TC_IDs (must be ≥1 each; flag any AC with 0)
+2. **Coverage Matrix** — % per dimension, with TC_IDs, and reason for any "N/A"
+3. **Coverage Formula** — show calculation: (Dimensions covered + ACs covered with min tests) / (Total applicable dimensions + Total ACs) × 100
+4. **Gap Analysis** — uncovered scenarios with reason: [out of scope / needs PO clarification / deferred]
+5. **Risk-Based Defects Prevented** — top 10 defects this suite catches
+6. **Effort Estimate** — design + execution hours
+7. **Self-Audit Checklist** (must all be ✅ before delivering):
+   - [ ] Every AC has ≥5 TCs covering pos + neg + boundary
+   - [ ] Every dimension has ≥1 TC or justified N/A
+   - [ ] Every link/button/field from story is tested
+   - [ ] No duplicates (verified by input+path+outcome triple)
+   - [ ] No invented facts; all assumptions flagged as <TBD>
+   - [ ] Coverage % calculated and shown
+   - [ ] If coverage <100%, list exactly what's missing and why
+
+If coverage drops below 100% on self-audit, regenerate the missing tests before outputting.

@@ -48,58 +48,58 @@ interface ALMToolConfig {
 
 const ALM_TOOL_CONFIG: Record<string, ALMToolConfig> = {
   Jira: {
-    urlLabel:         'Jira Base URL',
-    urlPlaceholder:   'https://yourorg.atlassian.net',
-    showUsername:     true,
-    usernameLabel:    'Email',
-    tokenLabel:       'API Token',
+    urlLabel: 'Jira Base URL',
+    urlPlaceholder: 'https://yourorg.atlassian.net',
+    showUsername: true,
+    usernameLabel: 'Email',
+    tokenLabel: 'API Token',
     tokenPlaceholder: 'Your Jira API token',
-    hint:             'Generate an API token at https://id.atlassian.com/manage-profile/security/api-tokens',
+    hint: 'Generate an API token at https://id.atlassian.com/manage-profile/security/api-tokens',
   },
   ADO: {
-    urlLabel:         'Organization URL',
-    urlPlaceholder:   'https://dev.azure.com/yourorg',
-    showUsername:     false,
-    usernameLabel:    '',
-    tokenLabel:       'Personal Access Token',
+    urlLabel: 'Organization URL',
+    urlPlaceholder: 'https://dev.azure.com/yourorg',
+    showUsername: false,
+    usernameLabel: '',
+    tokenLabel: 'Personal Access Token',
     tokenPlaceholder: 'PAT with full permissions',
-    hint:             'Create a PAT in Azure DevOps under User Settings → Personal Access Tokens.',
+    hint: 'Create a PAT in Azure DevOps under User Settings → Personal Access Tokens.',
   },
   'X-Ray': {
-    urlLabel:         'Jira Base URL',
-    urlPlaceholder:   'https://yourorg.atlassian.net',
-    showUsername:     true,
-    usernameLabel:    'Email',
-    tokenLabel:       'API Token',
+    urlLabel: 'Jira Base URL',
+    urlPlaceholder: 'https://yourorg.atlassian.net',
+    showUsername: true,
+    usernameLabel: 'Email',
+    tokenLabel: 'API Token',
     tokenPlaceholder: 'Your Jira API token',
-    hint:             'X-Ray Cloud uses your Jira credentials. Ensure the account has X-Ray project permissions.',
+    hint: 'X-Ray Cloud uses your Jira credentials. Ensure the account has X-Ray project permissions.',
   },
   TestRail: {
-    urlLabel:         'TestRail URL',
-    urlPlaceholder:   'https://yourorg.testrail.io',
-    showUsername:     true,
-    usernameLabel:    'Email / Username',
-    tokenLabel:       'API Key / Password',
+    urlLabel: 'TestRail URL',
+    urlPlaceholder: 'https://yourorg.testrail.io',
+    showUsername: true,
+    usernameLabel: 'Email / Username',
+    tokenLabel: 'API Key / Password',
     tokenPlaceholder: 'TestRail API key or password',
-    hint:             'Generate an API key in TestRail under My Settings → API Keys.',
+    hint: 'Generate an API key in TestRail under My Settings → API Keys.',
   },
   QTest: {
-    urlLabel:         'QTest URL',
-    urlPlaceholder:   'https://yourorg.qtestnet.com',
-    showUsername:     false,
-    usernameLabel:    '',
-    tokenLabel:       'Bearer Token',
+    urlLabel: 'QTest URL',
+    urlPlaceholder: 'https://yourorg.qtestnet.com',
+    showUsername: false,
+    usernameLabel: '',
+    tokenLabel: 'Bearer Token',
     tokenPlaceholder: 'Your QTest bearer token',
-    hint:             'Find the Bearer Token in QTest Manager under Resources → API & SDK.',
+    hint: 'Find the Bearer Token in QTest Manager under Resources → API & SDK.',
   },
   Zephyr: {
-    urlLabel:         'Jira Base URL',
-    urlPlaceholder:   'https://yourorg.atlassian.net',
-    showUsername:     true,
-    usernameLabel:    'Email',
-    tokenLabel:       'API Token',
+    urlLabel: 'Jira Base URL',
+    urlPlaceholder: 'https://yourorg.atlassian.net',
+    showUsername: true,
+    usernameLabel: 'Email',
+    tokenLabel: 'API Token',
     tokenPlaceholder: 'Your Jira API token',
-    hint:             'Zephyr Scale uses your Jira credentials. Ensure your account has Zephyr Scale project permissions.',
+    hint: 'Zephyr Scale uses your Jira credentials. Ensure your account has Zephyr Scale project permissions.',
   },
 };
 
@@ -981,7 +981,7 @@ interface FormData {
   issueId: string;
 }
 
-type AIConfig  = { llmApiKey: string; llmModel: string; llmEndpoint: string };
+type AIConfig = { llmApiKey: string; llmModel: string; llmEndpoint: string };
 type ALMConfig = { baseUrl: string; username: string; token: string; issueId: string };
 
 interface TcFormData {
@@ -1299,7 +1299,7 @@ const App: React.FC = () => {
 
   // Load persistence
   useEffect(() => {
-    const aiConfigs:  Record<string, AIConfig>  = JSON.parse(localStorage.getItem('ai_configs')  || '{}');
+    const aiConfigs: Record<string, AIConfig> = JSON.parse(localStorage.getItem('ai_configs') || '{}');
     const almConfigs: Record<string, ALMConfig> = JSON.parse(localStorage.getItem('alm_configs') || '{}');
 
     // One-time migration from legacy flat key
@@ -1307,15 +1307,15 @@ const App: React.FC = () => {
       const legacy = localStorage.getItem('agent_config');
       if (legacy) {
         const d = JSON.parse(legacy);
-        if (d.llmProvider)  aiConfigs[d.llmProvider]   = { llmApiKey: d.llmApiKey || '', llmModel: d.llmModel || '', llmEndpoint: d.llmEndpoint || 'http://127.0.0.1:11434' };
+        if (d.llmProvider) aiConfigs[d.llmProvider] = { llmApiKey: d.llmApiKey || '', llmModel: d.llmModel || '', llmEndpoint: d.llmEndpoint || 'http://127.0.0.1:11434' };
         if (d.selectedTool) almConfigs[d.selectedTool] = { baseUrl: d.baseUrl || '', username: d.username || '', token: d.token || '', issueId: d.issueId || '' };
       }
     }
 
     const provider = localStorage.getItem('last_provider') || 'GROQ';
-    const tool     = localStorage.getItem('last_tool')     || 'Jira';
-    const ai  = aiConfigs[provider]  || { llmApiKey: '', llmModel: '', llmEndpoint: 'http://127.0.0.1:11434' };
-    const alm = almConfigs[tool]     || { baseUrl: '', username: '', token: '', issueId: '' };
+    const tool = localStorage.getItem('last_tool') || 'Jira';
+    const ai = aiConfigs[provider] || { llmApiKey: '', llmModel: '', llmEndpoint: 'http://127.0.0.1:11434' };
+    const alm = almConfigs[tool] || { baseUrl: '', username: '', token: '', issueId: '' };
 
     setFormData(prev => ({ ...prev, llmProvider: provider, selectedTool: tool, ...ai, ...alm }));
   }, []);
@@ -1351,31 +1351,31 @@ const App: React.FC = () => {
     }
 
     setFormData(prev => ({ ...prev, [name]: value }));
-    if (AI_FIELDS.has(name))  setAiStatus('Not Connected!');
+    if (AI_FIELDS.has(name)) setAiStatus('Not Connected!');
     if (ALM_FIELDS.has(name)) setAlmStatus('Not Connected!');
-    if (name === 'issueId')   setIssueDetails(null);
+    if (name === 'issueId') setIssueDetails(null);
   };
 
   const handleSave = (type: 'AI' | 'ALM') => {
     if (type === 'AI') {
       const aiConfigs: Record<string, AIConfig> = JSON.parse(localStorage.getItem('ai_configs') || '{}');
       aiConfigs[formData.llmProvider] = {
-        llmApiKey:   formData.llmApiKey,
-        llmModel:    formData.llmModel,
+        llmApiKey: formData.llmApiKey,
+        llmModel: formData.llmModel,
         llmEndpoint: formData.llmEndpoint,
       };
-      localStorage.setItem('ai_configs',    JSON.stringify(aiConfigs));
+      localStorage.setItem('ai_configs', JSON.stringify(aiConfigs));
       localStorage.setItem('last_provider', formData.llmProvider);
     } else {
       const almConfigs: Record<string, ALMConfig> = JSON.parse(localStorage.getItem('alm_configs') || '{}');
       almConfigs[formData.selectedTool] = {
-        baseUrl:  formData.baseUrl,
+        baseUrl: formData.baseUrl,
         username: formData.username,
-        token:    formData.token,
-        issueId:  formData.issueId,
+        token: formData.token,
+        issueId: formData.issueId,
       };
       localStorage.setItem('alm_configs', JSON.stringify(almConfigs));
-      localStorage.setItem('last_tool',   formData.selectedTool);
+      localStorage.setItem('last_tool', formData.selectedTool);
     }
     setToast({ message: `${type} Configuration Saved!`, type: 'save' });
   };
@@ -1470,7 +1470,7 @@ const App: React.FC = () => {
       <h1 className="page-title">Connection Settings</h1>
       <p className="page-subtitle">Configure your ALM integration and AI engine endpoints to establish the data linkage.</p>
 
-      <div className="card-grid">
+      <div className="card-grid connection-grid">
         {/* AI Engine Card */}
         <div className="card">
           <div className="card-header">
@@ -1518,7 +1518,7 @@ const App: React.FC = () => {
           </div>
 
           {aiStatus && aiStatus !== 'Connection Successful!' && (
-            <div className={getStatusClass(aiStatus)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.5rem' }}>
+            <div className={getStatusClass(aiStatus)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', marginTop: '0.5rem' }}>
               {renderStatusIcon(aiStatus)} {aiStatus}
             </div>
           )}
@@ -1584,7 +1584,7 @@ const App: React.FC = () => {
           })()}
 
           {almStatus && almStatus !== 'Connection Successful!' && (
-            <div className={getStatusClass(almStatus)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.5rem' }}>
+            <div className={getStatusClass(almStatus)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', marginTop: '0.5rem' }}>
               {renderStatusIcon(almStatus)} {almStatus}
             </div>
           )}
@@ -1713,6 +1713,53 @@ const App: React.FC = () => {
       setToast({ message: 'Network Error: Analysis failed.', type: 'error' });
     } finally {
       setTcGapRunning(false);
+    }
+  };
+
+  const handleGenerateCustomTestCases = async () => {
+    setTcDocPath('');
+    setTcMdPath('');
+    setTcResults(null);
+    setTcGapAnalysis(null);
+    setTcPostError('');
+    setShowTcInsights(false);
+    setTcGeneratingCustom(true);
+    try {
+      const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          ...tcFormData,
+          isCustom: true,
+          coverageInstructions: 'Ensure 100% requirement coverage: cover happy path, negative, boundary, and edge cases for every stated acceptance criterion.'
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d.status === 'success' && d.test_cases) {
+        const parts = (d.document_path || '').split(/[\\/]/);
+        const filename = parts[parts.length - 1] || 'test_cases.xlsx';
+        setTcDocPath(d.document_path || '');
+        setTcMdPath(d.md_path || '');
+        setTcResults(d.test_cases);
+        const tcCount = d.test_cases?.testCases?.length || 0;
+        setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
+        setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
+        setTimeout(() => handleRunGapAnalysis(true), 300);
+      } else if (d.status === 'success' && !d.test_cases) {
+        setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
+        setToast({ message: 'Error: No test cases generated', type: 'error' });
+      } else {
+        const err = d.detail || d.message || 'Generation failed.';
+        setTcStatus(`Error: ${err}`);
+        setToast({ message: `Generation Error: ${err}`, type: 'error' });
+      }
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : 'Unknown error';
+      setTcStatus(`Error: ${errMsg}. Is the API server running?`);
+      setToast({ message: `Network Error: ${errMsg}`, type: 'error' });
+    } finally {
+      setTcGeneratingCustom(false);
     }
   };
 
@@ -2527,9 +2574,7 @@ const App: React.FC = () => {
           animation: 'slideIn 0.3s ease-out',
         }}>
           {tcDocPath && !tcStatus.startsWith('Error:') && (tcStatus.includes('generated') || tcStatus.includes('completed')) ? (
-            // Completion state: show filename with count and download button
             (() => {
-              // Extract count from status message like "Test cases generated: filename (15 cases)"
               const countMatch = tcStatus.match(/\((\d+)\s+cases?\)/);
               const count = countMatch ? countMatch[1] : '';
               const filename = tcDocPath.split(/[\\/]/).pop() || 'test_cases.xlsx';
@@ -2599,7 +2644,6 @@ const App: React.FC = () => {
               );
             })()
           ) : tcStatus.startsWith('Error:') ? (
-            // Pre-generation error: show prominently in red
             <div style={{
               display: 'flex',
               alignItems: 'flex-start',
@@ -2613,10 +2657,32 @@ const App: React.FC = () => {
               animation: 'slideIn 0.3s ease-out',
             }}>
               <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
-              <span>{tcStatus}</span>
+              <span style={{ flex: 1 }}>{tcStatus}</span>
+              {(tcStatus.includes('429') || tcStatus.toLowerCase().includes('too many requests')) && (
+                <button
+                  onClick={handleGenerateCustomTestCases}
+                  disabled={tcGeneratingCustom}
+                  style={{
+                    marginLeft: 'auto',
+                    flexShrink: 0,
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(225, 29, 72, 0.5)',
+                    background: 'transparent',
+                    color: '#E11D48',
+                    cursor: tcGeneratingCustom ? 'not-allowed' : 'pointer',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    opacity: tcGeneratingCustom ? 0.6 : 1,
+                    transition: 'opacity 0.2s'
+                  }}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           ) : (
-            // Progress / neutral state
             <div className={tcStatusClass(tcStatus)} style={{
               display: 'flex',
               alignItems: 'flex-start',
@@ -2631,7 +2697,7 @@ const App: React.FC = () => {
         </div>
       ) : null}
 
-      {/* Post-generation error: appended below the success bar */}
+      {/* Post-generation error */}
       {tcPostError && (
         <div style={{
           marginTop: '0.5rem',
@@ -2652,7 +2718,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-
       {/* Actions */}
       <div className="actions-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem', marginTop: '0.875rem', justifyContent: 'flex-start' }}>
         <button className="btn btn-salmon" disabled={tcGapRunning} onClick={() => {
@@ -2664,51 +2729,7 @@ const App: React.FC = () => {
           {tcGapRunning ? <><RefreshCw size={16} className="spin" /> Analyzing...</> : <><ClipboardList size={16} /> Analyze Gaps First</>}
         </button>
 
-        <button className="btn btn-outline red" disabled={tcGeneratingCustom} onClick={async () => {
-          setTcDocPath('');
-          setTcMdPath('');
-          setTcResults(null);
-          setTcGapAnalysis(null);
-          setTcPostError('');
-          setTcGeneratingCustom(true);
-          try {
-            const res = await fetch(`${BACKEND_API_BASE}/generate-test-cases`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ...formData,
-                ...tcFormData,
-                isCustom: true,
-                coverageInstructions: 'Ensure 100% requirement coverage: cover happy path, negative, boundary, and edge cases for every stated acceptance criterion.'
-              }),
-            });
-            const d = await res.json().catch(() => ({}));
-            if (d.status === 'success' && d.test_cases) {
-              const parts = (d.document_path || '').split(/[\\/]/);
-              const filename = parts[parts.length - 1] || 'test_cases.xlsx';
-              setTcDocPath(d.document_path || '');
-              setTcMdPath(d.md_path || '');
-              setTcResults(d.test_cases);
-              const tcCount = d.test_cases?.testCases?.length || 0;
-              setTcStatus(`Test cases generated: ${filename} (${tcCount} cases)`);
-              setToast({ message: `Test Cases Generated: ${filename}`, type: 'success' });
-              setTimeout(() => handleRunGapAnalysis(true), 300);
-            } else if (d.status === 'success' && !d.test_cases) {
-              setTcStatus('Error: API returned success but no test cases were generated. Check requirements and try again.');
-              setToast({ message: 'Error: No test cases generated', type: 'error' });
-            } else {
-              const err = d.detail || d.message || 'Generation failed.';
-              setTcStatus(`Error: ${err}`);
-              setToast({ message: `Generation Error: ${err}`, type: 'error' });
-            }
-          } catch (e) {
-            const errMsg = e instanceof Error ? e.message : 'Unknown error';
-            setTcStatus(`Error: ${errMsg}. Is the API server running?`);
-            setToast({ message: `Network Error: ${errMsg}`, type: 'error' });
-          } finally {
-            setTcGeneratingCustom(false);
-          }
-        }}>
+        <button className="btn btn-outline red" disabled={tcGeneratingCustom} onClick={handleGenerateCustomTestCases}>
           {tcGeneratingCustom ? <><RefreshCw size={16} className="spin" /> Generating...</> : <><Zap size={16} /> Generate AI Test Cases</>}
         </button>
 

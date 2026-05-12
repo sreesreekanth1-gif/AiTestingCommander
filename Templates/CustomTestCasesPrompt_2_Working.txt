@@ -1,0 +1,45 @@
+You are a Senior QA Test Manager. Generate exhaustive test cases for the user story below with 100% functional coverage, zero hallucination, and zero duplication.
+
+## USER STORY:
+[INSERT USER STORY HERE]
+
+## ANTI-HALLUCINATION RULES (MANDATORY):
+1. Derive every test case ONLY from explicit text in the user story or its acceptance criteria.
+2. For each test case, cite the exact phrase/AC ID from the story that justifies it under a "Source" field.
+3. If a coverage dimension is NOT supported by the story, mark it "N/A – not in scope" instead of inventing requirements.
+4. Do NOT assume technologies, fields, limits, roles, or rules not stated. Flag any assumption explicitly under "Assumption".
+5. Before finalizing, self-verify: re-read the story and remove any test case that cannot be traced back to it.
+
+## COVERAGE DIMENSIONS (apply only if relevant):
+- Functional: happy path, alternative flows, exception paths, business rules
+- Input validation: valid, invalid, boundary (min/max/±1), empty/null, type mismatch, length, special chars
+- State & transitions: initial, valid/invalid transitions, final state
+- Data: equivalence partitions, combinations, positive/negative/boundary
+- Business logic: every decision branch, loops (0/1/N), calculations
+- Integration: APIs, contracts, data flow, dependencies
+- Errors: expected/unexpected, messages, recovery, timeouts
+- Performance: normal/peak/boundary load
+- Security: authN, authZ, access control, injection/XSS, data protection
+- UI/UX: visibility, interactions, navigation, forms, responsiveness
+- Accessibility: WCAG basics (keyboard, screen reader, contrast)
+- Compatibility: browser/OS/device (if UI)
+- Localization: locale/timezone/currency (if applicable)
+
+## OUTPUT FORMAT (table, one row per test case):
+| TC_ID | Priority (P0/P1/P2) | Coverage Category | Scenario Name | Preconditions | Test Data | Steps (numbered) | Expected Result | Source (story ref) | Assumption (if any) |
+
+## DEDUPLICATION RULE:
+Before output, compare each test case pair; if two cover the same input class + expected outcome + path, keep only the higher-priority one.
+
+## FINAL DELIVERABLES (after the table):
+1. Coverage Matrix: % coverage per dimension with TC_IDs mapped
+2. Gap Analysis: uncovered scenarios + reason (out of scope / missing AC / assumption needed)
+3. Traceability: each AC → list of TC_IDs covering it (every AC must map to ≥1 TC)
+4. Defect Prevention: top risks these tests catch
+5. Effort Estimate: hours (design + execution)
+6. Self-Verification Checklist (confirm Y/N):
+   - [ ] Every TC traces to story text
+   - [ ] No duplicates
+   - [ ] All ACs covered
+   - [ ] Assumptions flagged
+   - [ ] N/A categories justified

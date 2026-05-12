@@ -15,14 +15,6 @@ Generate test cases covering ALL of the following dimensions:
 - Exception Paths: Error handling and edge cases
 - Business Rule Validation: All business rules and constraints
 
-## TEST SOURCING (anti-hallucination):
-- Tier 1 (Story): trace to AC ID
-- Tier 2 (Standard): industry pattern for feature type
-- Unknown values → write "<TBD>", never guess
-
-## DIMENSIONS:
-Functional, Input validation (valid/invalid/boundary/empty/null/special chars/length/type), State transitions, Business logic branches, Integration/API, Error handling, Performance, Security (authN/authZ/XSS/SQLi/CSRF), UI states (default/hover/focus/disabled/loading/error), Accessibility (WCAG 2.1 AA, keyboard, screen reader, contrast), Responsive (mobile/tablet/desktop), Cross-browser, Localization, Browser behaviors (back/refresh/deep link/multi-tab)
-
 ### 2. INPUT VALIDATION COVERAGE
 - Valid inputs (positive cases)
 - Invalid inputs (negative cases)
@@ -106,15 +98,5 @@ At the end, provide:
 3. Defect Prevention: List potential defects these tests help prevent
 4. Test Execution Effort: Estimate total test effort (in hours)
 5. Make sure that test cases are not duplicated
-
-. Self-audit checklist (all must pass):
-   [ ] Every AC has ≥5 TCs (pos+neg+boundary+NFR)
-   [ ] Every dimension covered or N/A justified
-   [ ] Every story element tested
-   [ ] No duplicates
-   [ ] No invented facts (TBDs flagged)
-   [ ] Coverage = 100%
-
-If <100%, regenerate missing tests before final output.
 
 ---
