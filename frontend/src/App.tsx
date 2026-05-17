@@ -10,6 +10,11 @@ import {
 } from 'lucide-react';
 import './index.css';
 import ZephyrUploadModal from './components/ZephyrUploadModal';
+import FrameworkSettingsModal, {
+  loadFrameworkConfig,
+  type FrameworkConfig,
+} from './components/FrameworkSettingsModal';
+import ScriptGenerationModal from './components/ScriptGenerationModal';
 
 const BACKEND_API_BASE = '/api';
 
@@ -1116,6 +1121,25 @@ const App: React.FC = () => {
   const [tcDocPath, setTcDocPath] = useState('');
   const [tcResults, setTcResults] = useState<TestData | null>(null);
   const [selectedTcIndices, setSelectedTcIndices] = useState<number[]>([]);
+  const [frameworkSettingsOpen, setFrameworkSettingsOpen] = useState(false);
+  const [frameworkSettingsMsg, setFrameworkSettingsMsg] = useState<string | undefined>(undefined);
+  const [frameworkConfig, setFrameworkConfig] = useState<FrameworkConfig | null>(() => loadFrameworkConfig());
+  const [scriptGenModalOpen, setScriptGenModalOpen] = useState(false);
+
+  // Live-refresh framework config when settings change in another tab (storage event)
+  // or another component in the same tab (custom 'framework-changed' event).
+  useEffect(() => {
+    const refresh = () => setFrameworkConfig(loadFrameworkConfig());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'frameworkSettings') refresh();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('framework-changed', refresh);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('framework-changed', refresh);
+    };
+  }, []);
   const [editingTcIndex, setEditingTcIndex] = useState<number | null>(null);
   const [editingTc, setEditingTc] = useState<TestCase | null>(null);
   const [tcGapAnalysis, setTcGapAnalysis] = useState<Analysis | null>(null);
@@ -2182,6 +2206,7 @@ const App: React.FC = () => {
     onSaveToLibrary: () => void;
     onSendToReview: () => void;
     onShowInsights: (show: boolean) => void;
+    onGenerateScripts: () => void;
   }> = (props) => {
     const {
       tcDocPath,
@@ -2195,6 +2220,7 @@ const App: React.FC = () => {
       onSaveToLibrary,
       onSendToReview,
       onShowInsights,
+      onGenerateScripts,
     } = props;
 
     return (
@@ -2202,6 +2228,15 @@ const App: React.FC = () => {
         {/* Push to Zephyr */}
         <button className="btn btn-primary" style={{ width: '100%' }} onClick={onPushToZephyr}>
           <ArrowUpFromLine size={16} /> Push to Zephyr
+        </button>
+
+        {/* Generate Test Scripts */}
+        <button
+          className="btn"
+          style={{ width: '100%', marginTop: '0.4rem', background: '#7c3aed', color: 'white' }}
+          onClick={onGenerateScripts}
+        >
+          <FileText size={16} /> Generate Test Scripts
         </button>
 
         {/* Divider */}
@@ -2561,6 +2596,18 @@ const App: React.FC = () => {
             onSaveToLibrary={handleSaveToLibrary}
             onSendToReview={() => setCurrentView('review')}
             onShowInsights={setShowTcInsights}
+            onGenerateScripts={() => {
+              if (selectedTcIndices.length === 0) {
+                setToast({ message: 'No test cases selected. Please select at least one test case to generate scripts.', type: 'error' });
+                return;
+              }
+              const existing = loadFrameworkConfig();
+              setFrameworkConfig(existing);
+              setFrameworkSettingsMsg(
+                existing && existing.healthy ? undefined : 'Configure Test Automation Framework first (path + LLM connection).'
+              );
+              setFrameworkSettingsOpen(true);
+            }}
           />
         </div>
       )}
@@ -2817,7 +2864,14 @@ const App: React.FC = () => {
           </div>
 
           <div className="sidebar-bottom">
-            <div className="nav-item">
+            <div
+              className="nav-item"
+              onClick={() => {
+                setFrameworkSettingsMsg(undefined);
+                setFrameworkSettingsOpen(true);
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <span style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}><Settings size={18} /> Settings</span>
             </div>
             <div className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
@@ -3043,6 +3097,42 @@ const App: React.FC = () => {
         tcResults={tcResults}
         selectedIndices={selectedTcIndices}
       />
+      <FrameworkSettingsModal
+        isOpen={frameworkSettingsOpen}
+        onClose={() => setFrameworkSettingsOpen(false)}
+        initialMessage={frameworkSettingsMsg}
+        onSaved={(cfg) => {
+          setFrameworkConfig(cfg);
+          setFrameworkSettingsMsg(undefined);
+          setToast({ message: 'Framework settings saved.', type: 'success' });
+        }}
+        onCleared={() => {
+          setFrameworkConfig(null);
+          setToast({ message: 'Framework settings cleared.', type: 'success' });
+        }}
+        onGenerateScripts={(cfg) => {
+          if (!tcResults || tcResults.testCases.length === 0) {
+            setToast({ message: 'No test cases available. Generate test cases first.', type: 'error' });
+            return;
+          }
+          setFrameworkConfig(cfg);
+          setScriptGenModalOpen(true);
+        }}
+      />
+      {scriptGenModalOpen && frameworkConfig && tcResults && (
+        <ScriptGenerationModal
+          key={frameworkConfig.savedAt || frameworkConfig.frameworkPath}
+          isOpen={scriptGenModalOpen}
+          onClose={() => setScriptGenModalOpen(false)}
+          frameworkConfig={frameworkConfig}
+          testCases={
+            selectedTcIndices.length > 0
+              ? tcResults.testCases.filter((_, i) => selectedTcIndices.includes(i))
+              : tcResults.testCases
+          }
+          onToast={(message, type) => setToast({ message, type })}
+        />
+      )}
       {toast && (
         <div className={`toast-notification toast-notification--${toast.type}`}>
           {toast.type === 'error' ? <XCircle size={18} /> :

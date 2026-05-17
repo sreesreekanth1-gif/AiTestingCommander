@@ -246,13 +246,38 @@ RETURN ONLY VALID JSON matching this schema:
     else:
         return f"{base_prompt}{custom_part}"
 
+_RETRYABLE_STATUS = {429, 502, 503, 504}
+_RETRY_BACKOFF_CAP = 30
+
+
 def _request_with_retry(method, url, retries=3, **kwargs):
-    """Make an HTTP request with automatic retry on 429 rate-limit errors."""
+    """Retry on 429, 5xx, ConnectionError, Timeout. Exponential backoff, cap 30s.
+
+    Never retries 4xx other than 429 (auth, validation, payload-too-large).
+    Honors `Retry-After` header when present.
+    """
     for attempt in range(retries):
-        resp = method(url, **kwargs)
-        if resp.status_code == 429 and attempt < retries - 1:
-            wait = int(resp.headers.get("retry-after", 2 ** attempt + 1))
-            print(f"[LLMRouter] Rate limited (429). Retrying in {wait}s (attempt {attempt + 1}/{retries})...")
+        try:
+            resp = method(url, **kwargs)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            if attempt >= retries - 1:
+                raise
+            wait = min(2 ** attempt + 1, _RETRY_BACKOFF_CAP)
+            print(f"[LLMRouter] {type(e).__name__}: {e}. Retrying in {wait}s "
+                  f"(attempt {attempt + 1}/{retries})...")
+            time.sleep(wait)
+            continue
+
+        if resp.status_code in _RETRYABLE_STATUS and attempt < retries - 1:
+            ra = resp.headers.get("retry-after") or resp.headers.get("Retry-After")
+            try:
+                wait = int(ra) if ra else 2 ** attempt + 1
+            except (TypeError, ValueError):
+                wait = 2 ** attempt + 1
+            wait = min(wait, _RETRY_BACKOFF_CAP)
+            label = "rate limit" if resp.status_code == 429 else f"HTTP {resp.status_code}"
+            print(f"[LLMRouter] {label}. Retrying in {wait}s "
+                  f"(attempt {attempt + 1}/{retries})...")
             time.sleep(wait)
             continue
         return resp
@@ -408,6 +433,33 @@ LITE_MODEL_MAP = {
     "google/gemini-pro-1.5": "google/gemini-flash-1.5",
 }
 
+# Per-provider default lite model used when current model isn't mapped above.
+# Surfaced in 413 Payload Too Large error messages as an actionable suggestion.
+PROVIDER_LITE_DEFAULTS = {
+    "GROQ":       "llama-3.1-8b-instant",
+    "Grok":       "grok-beta",
+    "Claude":     "claude-3-5-haiku-20241022",
+    "Anthropic":  "claude-3-5-haiku-20241022",
+    "Ollama":     "llama3.2:3b",
+    "OpenRouter": "google/gemini-flash-1.5",
+}
+
+
+def _suggest_alternate_model(provider: str, current_model: str) -> str:
+    """Return a human-readable suggestion for a smaller model after a 413.
+
+    Picks from LITE_MODEL_MAP first (mapped from current), then
+    PROVIDER_LITE_DEFAULTS. Returns "" when no useful suggestion exists.
+    """
+    cm = (current_model or "").strip()
+    suggested = LITE_MODEL_MAP.get(cm) or PROVIDER_LITE_DEFAULTS.get(provider, "")
+    if not suggested or suggested == cm:
+        return ""
+    if cm:
+        return (f"Try model '{suggested}' instead of '{cm}' "
+                f"(smaller context handles large frameworks).")
+    return f"Try model '{suggested}' (smaller context handles large frameworks)."
+
 def _get_model_for_mode(config: dict) -> tuple:
     """
     Returns (model_name, is_lite_mode) based on config and context size.
@@ -518,7 +570,9 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "",
                 raw = _dispatch(messages)
                 return _parse_json_response(raw)
             except Exception as retry_e:
-                raise RuntimeError(f"{provider} generation failed after retry: {str(retry_e)}")
+                hint = _suggest_alternate_model(provider, model or "")
+                suffix = f" {hint}" if hint else ""
+                raise RuntimeError(f"{provider} generation failed after retry: {str(retry_e)}.{suffix}")
         raise RuntimeError(f"{provider} generation failed: {str(e)}")
     except Exception as e:
         raise RuntimeError(f"{provider} generation failed: {str(e)}")
@@ -591,7 +645,9 @@ def route_scenarios(config: dict, context_text: str) -> dict:
                 raw = _dispatch(messages)
                 return _parse_json_response(raw)
             except Exception as retry_e:
-                raise RuntimeError(f"{provider} scenario generation failed after retry: {str(retry_e)}")
+                hint = _suggest_alternate_model(provider, model or "")
+                suffix = f" {hint}" if hint else ""
+                raise RuntimeError(f"{provider} scenario generation failed after retry: {str(retry_e)}.{suffix}")
         raise RuntimeError(f"{provider} scenario generation failed: {str(e)}")
     except Exception as e:
         raise RuntimeError(f"{provider} scenario generation failed: {str(e)}")

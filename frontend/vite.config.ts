@@ -1,9 +1,35 @@
 import { Buffer } from 'node:buffer'
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { writeFile, readFile, stat, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { defineConfig, type ViteDevServer } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const BACKEND_PORT = 8000
+const BACKEND_HOST = '127.0.0.1'
+
+const isBackendAlive = async (): Promise<boolean> => {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 1500)
+    const res = await fetch(`http://${BACKEND_HOST}:${BACKEND_PORT}/health`, {
+      signal: controller.signal as AbortSignal,
+    })
+    clearTimeout(timer)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+const waitForBackend = async (timeoutMs = 15000): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await isBackendAlive()) return true
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  return false
+}
 
 interface Payload {
   type?: 'AI' | 'ALM'
@@ -667,6 +693,69 @@ const buildAlmRequest = (payload: Payload) => {
 const verifyConnectionPlugin = () => ({
   name: 'verify-connection-plugin',
   configureServer(server: ViteDevServer) {
+    // ── Auto-start FastAPI backend (api_server.py) ────────────
+    const projectRootBoot = path.resolve(__dirname, '..')
+    const toolsDirBoot = path.join(projectRootBoot, 'tools')
+    const venvPythonBoot = process.platform === 'win32'
+      ? path.join(projectRootBoot, '.venv', 'Scripts', 'python.exe')
+      : path.join(projectRootBoot, '.venv', 'bin', 'python')
+
+    let backendProc: ChildProcess | null = null
+    let shuttingDown = false
+    let lastSpawnAt = 0
+    let consecutiveQuickExits = 0
+
+    const startBackend = async () => {
+      if (shuttingDown) return
+      if (await isBackendAlive()) {
+        server.config.logger.info(`[backend] already running on http://${BACKEND_HOST}:${BACKEND_PORT}`)
+        return
+      }
+      server.config.logger.info(`[backend] spawning api_server.py on http://${BACKEND_HOST}:${BACKEND_PORT}`)
+      lastSpawnAt = Date.now()
+      backendProc = spawn(venvPythonBoot, ['api_server.py'], {
+        cwd: toolsDirBoot,
+        env: { ...process.env, PYTHONPATH: toolsDirBoot, PYTHONUNBUFFERED: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+      backendProc.stdout?.on('data', (d) => process.stdout.write(`[backend] ${d}`))
+      backendProc.stderr?.on('data', (d) => process.stderr.write(`[backend] ${d}`))
+      backendProc.on('exit', (code) => {
+        const uptimeMs = Date.now() - lastSpawnAt
+        backendProc = null
+        if (shuttingDown) return
+        if (uptimeMs < 3000) consecutiveQuickExits++
+        else consecutiveQuickExits = 0
+        if (consecutiveQuickExits >= 5) {
+          server.config.logger.error(`[backend] exited with code ${code} after ${uptimeMs}ms — giving up after ${consecutiveQuickExits} quick exits`)
+          return
+        }
+        const delayMs = Math.min(1000 * 2 ** consecutiveQuickExits, 10000)
+        server.config.logger.warn(`[backend] exited with code ${code} after ${uptimeMs}ms — restarting in ${delayMs}ms`)
+        setTimeout(() => {
+          startBackend().catch((e) => server.config.logger.error(`[backend] restart error: ${e?.message || e}`))
+        }, delayMs)
+      })
+      const up = await waitForBackend()
+      if (!up) server.config.logger.error('[backend] failed to become healthy within timeout')
+      else server.config.logger.info('[backend] healthy')
+    }
+
+    const stopBackend = () => {
+      shuttingDown = true
+      if (backendProc && !backendProc.killed) {
+        backendProc.kill()
+        backendProc = null
+      }
+    }
+
+    startBackend().catch((e) => server.config.logger.error(`[backend] start error: ${e?.message || e}`))
+
+    server.httpServer?.once('close', stopBackend)
+    process.once('SIGTERM', stopBackend)
+    process.once('exit', stopBackend)
+
     server.middlewares.use('/api/verify', async (req: any, res: any, next: any) => {
       if (req.method !== 'POST') {
         next()
