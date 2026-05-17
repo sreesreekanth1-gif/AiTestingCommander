@@ -4,7 +4,7 @@
 ║   Routes prompts to the selected LLM provider.          ║
 ║   Zero-hallucination system prompt enforced.            ║
 ╚══════════════════════════════════════════════════════════╝
-Supported: GROQ | Grok | Claude | Anthropic | Ollama | OpenAI | OpenRouter
+Supported: GROQ | Grok | Claude | Anthropic | Ollama | OpenAI | OpenRouter | Gemini
 """
 
 import json
@@ -290,7 +290,8 @@ def _call_groq(api_key: str, model: str, messages: list, max_tokens: int = 4096)
         "https://api.groq.com/openai/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model or "llama-3.3-70b-versatile", "messages": messages,
-              "temperature": 0.1, "max_tokens": max_tokens},
+              "temperature": 0.1, "max_tokens": max_tokens,
+              "response_format": {"type": "json_object"}},
         timeout=120
     )
     if resp.status_code == 413:
@@ -304,7 +305,8 @@ def _call_grok(api_key: str, model: str, messages: list) -> str:
         "https://api.x.ai/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model or "grok-beta", "messages": messages,
-              "temperature": 0.1, "max_tokens": 8192},
+              "temperature": 0.1, "max_tokens": 8192,
+              "response_format": {"type": "json_object"}},
      )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
@@ -349,27 +351,89 @@ def _call_ollama(endpoint: str, model: str, messages: list) -> str:
     resp.raise_for_status()
     return resp.json()["message"]["content"]
 
+_OPENROUTER_FALLBACKS = [
+    "google/gemini-flash-1.5",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+]
+
+
 def _call_openrouter(api_key: str, model: str, messages: list, max_tokens: int = 4096) -> str:
+    primary = model or "google/gemini-flash-1.5"
+    candidates = [primary] + [m for m in _OPENROUTER_FALLBACKS if m != primary]
+    last_err: Exception = RuntimeError("No models tried")
+    for candidate in candidates:
+        try:
+            resp = _request_with_retry(
+                requests.post,
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/otsi-smart-qa",
+                    "X-Title": "TestPulse AI-OTSI"
+                },
+                json={
+                    "model": candidate,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"}
+                },
+                timeout=120
+            )
+            if resp.status_code in (429, 502):
+                last_err = requests.exceptions.HTTPError(
+                    f"HTTP {resp.status_code} on {candidate}", response=resp
+                )
+                print(f"[OpenRouter] {resp.status_code} on {candidate!r}, trying next fallback")
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if "choices" not in data:
+                raise RuntimeError(f"OpenRouter error (full response): {data}")
+            if candidate != primary:
+                print(f"[OpenRouter] Used fallback model {candidate!r}")
+            return data["choices"][0]["message"]["content"]
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code in (429, 502):
+                last_err = e
+                print(f"[OpenRouter] {e.response.status_code} on {candidate!r}, trying next fallback")
+                continue
+            raise
+    raise RuntimeError(
+        f"All OpenRouter models rate-limited or unavailable. "
+        f"Add your own API key at https://openrouter.ai/settings/integrations. "
+        f"Last error: {last_err}"
+    )
+
+def _call_gemini(api_key: str, model, messages: list) -> str:
+    model = model or "gemini-2.0-flash"
+    system_msg = next((m["content"] for m in messages if m["role"] == "system"), SYSTEM_PROMPT)
+    contents = []
+    for m in messages:
+        if m["role"] == "system":
+            continue
+        role = "model" if m["role"] == "assistant" else "user"
+        contents.append({"role": role, "parts": [{"text": m["content"]}]})
     resp = _request_with_retry(
         requests.post,
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/otsi-smart-qa", # Optional
-            "X-Title": "TestPulse AI-OTSI"
-        },
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        params={"key": api_key},
         json={
-            "model": model or "google/gemini-pro-1.5",
-            "messages": messages,
-            "temperature": 0.1,
-            "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"}
+            "contents": contents,
+            "systemInstruction": {"parts": [{"text": system_msg}]},
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192, "response_mime_type": "application/json"},
         },
-        timeout=120
+        timeout=120,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    data = resp.json()
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise RuntimeError(f"Gemini returned no candidates: {data}")
+    return candidates[0]["content"]["parts"][0]["text"]
+
 
 def _truncate_context(text: str, max_chars: int) -> str:
     """Truncate context to stay within LLM provider payload limits."""
@@ -431,6 +495,8 @@ LITE_MODEL_MAP = {
     "llama3": "llama3.2:3b",
     "llama3.1": "llama3.2:3b",
     "google/gemini-pro-1.5": "google/gemini-flash-1.5",
+    "gemini-2.0-flash": "gemini-2.0-flash-lite",
+    "gemini-1.5-pro": "gemini-2.0-flash-lite",
 }
 
 # Per-provider default lite model used when current model isn't mapped above.
@@ -442,6 +508,7 @@ PROVIDER_LITE_DEFAULTS = {
     "Anthropic":  "claude-3-5-haiku-20241022",
     "Ollama":     "llama3.2:3b",
     "OpenRouter": "google/gemini-flash-1.5",
+    "Gemini":     "gemini-2.0-flash-lite",
 }
 
 
@@ -483,6 +550,8 @@ def _get_model_for_mode(config: dict) -> tuple:
             model = "llama3" if not lite_mode else "llama3.2:3b"
         elif provider == "OpenRouter":
             model = "google/gemini-pro-1.5" if not lite_mode else "google/gemini-flash-1.5"
+        elif provider == "Gemini":
+            model = "gemini-2.0-flash" if not lite_mode else "gemini-2.0-flash-lite"
     
     # Auto-enable lite mode for very large contexts (>5000 chars)
     if not lite_mode and model in LITE_MODEL_MAP:
@@ -510,7 +579,7 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "",
 
     # Provider-specific context limits (approximate safe char limits)
     # GROQ free-tier enforces strict payload size — keep conservatively low
-    provider_limits = {"GROQ": 3500, "Grok": 32000, "Claude": 100000, "Anthropic": 100000, "Ollama": 16000, "OpenRouter": 64000}
+    provider_limits = {"GROQ": 3500, "Grok": 32000, "Claude": 100000, "Anthropic": 100000, "Ollama": 16000, "OpenRouter": 64000, "Gemini": 100000}
     max_chars = provider_limits.get(provider, 100000)
 
     # Apply context summarization if enabled (lite mode or very large context)
@@ -530,7 +599,7 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "",
     messages = _build_messages(context_text)
 
     # Dynamic payload guard: if JSON payload exceeds safe threshold, shrink context further
-    MAX_PAYLOAD_CHARS = {"GROQ": 20000, "Grok": 200000, "Claude": 500000, "Anthropic": 500000, "Ollama": 100000, "OpenRouter": 200000}
+    MAX_PAYLOAD_CHARS = {"GROQ": 20000, "Grok": 200000, "Claude": 500000, "Anthropic": 500000, "Ollama": 100000, "OpenRouter": 200000, "Gemini": 500000}
     max_payload = MAX_PAYLOAD_CHARS.get(provider, 500000)
     payload_size = len(json.dumps(messages))
     if payload_size > max_payload:
@@ -553,6 +622,7 @@ def route_to_llm(config: dict, context_text: str, custom_instructions: str = "",
         elif provider in ["Claude", "Anthropic"]: return _call_claude(api_key, model, msgs)
         elif provider == "Ollama":           return _call_ollama(endpoint, model, msgs)
         elif provider == "OpenRouter":       return _call_openrouter(api_key, model, msgs)
+        elif provider == "Gemini":           return _call_gemini(api_key, model, msgs)
         else: raise ValueError(f"Unsupported provider: {provider}")
 
     try:
@@ -588,7 +658,7 @@ def route_scenarios(config: dict, context_text: str) -> dict:
     issue_id = config.get("issueId", "UNKNOWN")
 
     # GROQ has very strict payload limits on free tier - be conservative
-    max_chars = {"GROQ": 2000, "Grok": 32000, "Ollama": 16000, "OpenRouter": 64000}.get(provider, 100000)
+    max_chars = {"GROQ": 2000, "Grok": 32000, "Ollama": 16000, "OpenRouter": 64000, "Gemini": 100000}.get(provider, 100000)
     context_text = _truncate_context(context_text, max_chars)
 
     def _build_sc_messages(ctx: str) -> list:
@@ -602,7 +672,7 @@ def route_scenarios(config: dict, context_text: str) -> dict:
 
     # Dynamic payload guard: if JSON payload exceeds safe threshold, shrink context further
     # GROQ free tier is very restrictive - use much smaller limits
-    MAX_PAYLOAD_CHARS = {"GROQ": 15000, "Grok": 200000, "Ollama": 100000, "OpenRouter": 200000}
+    MAX_PAYLOAD_CHARS = {"GROQ": 15000, "Grok": 200000, "Ollama": 100000, "OpenRouter": 200000, "Gemini": 500000}
     max_payload = MAX_PAYLOAD_CHARS.get(provider, 500000)
     payload_size = len(json.dumps(messages))
     if payload_size > max_payload:
@@ -620,13 +690,14 @@ def route_scenarios(config: dict, context_text: str) -> dict:
 
     def _dispatch(msgs: list) -> str:
         # For scenarios, use moderate token limit to keep payload manageable
-        scenario_max_tokens = {"GROQ": 2048, "Grok": 4096, "Claude": 4096, "Anthropic": 4096, "Ollama": 2048, "OpenRouter": 4096}
+        scenario_max_tokens = {"GROQ": 2048, "Grok": 4096, "Claude": 4096, "Anthropic": 4096, "Ollama": 2048, "OpenRouter": 4096, "Gemini": 4096}
         tokens = scenario_max_tokens.get(provider, 2048)
         if provider == "GROQ":               return _call_groq(api_key, model, msgs, max_tokens=tokens)
         elif provider == "Grok":             return _call_grok(api_key, model, msgs)
         elif provider in ["Claude", "Anthropic"]: return _call_claude(api_key, model, msgs)
         elif provider == "Ollama":           return _call_ollama(endpoint, model, msgs)
         elif provider == "OpenRouter":       return _call_openrouter(api_key, model, msgs, max_tokens=tokens)
+        elif provider == "Gemini":           return _call_gemini(api_key, model, msgs)
         else: raise ValueError(f"Unsupported provider: {provider}")
 
     try:
@@ -705,6 +776,8 @@ def route_gap_analysis(config: dict, context_text: str) -> dict:
             raw = _call_ollama(endpoint, model or "llama3", messages)
         elif provider == "OpenRouter":
             raw = _call_openrouter(api_key, model, messages)
+        elif provider == "Gemini":
+            raw = _call_gemini(api_key, model, messages)
         else:
             raise RuntimeError(f"Unsupported provider: {provider!r}")
     except Exception as e:
@@ -921,7 +994,14 @@ def call_with_tools(
             return _call_ollama(endpoint, model, messages)
         elif provider == "OpenRouter":
             return _call_openrouter(api_key, model, messages)
+        elif provider == "Gemini":
+            return _call_gemini(api_key, model, messages)
         raise ValueError(f"Unsupported provider: {provider}")
+
+    if provider == "Gemini":
+        raise NotImplementedError(
+            "Gemini MCP tool-use is not supported. Use Claude or GROQ for MCP-assisted generation."
+        )
 
     current_messages = list(messages)
 

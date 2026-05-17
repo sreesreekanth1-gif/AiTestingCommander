@@ -1546,6 +1546,7 @@ const App: React.FC = () => {
               <option value="OpenRouter">OpenRouter (All Models)</option>
               <option value="Grok">Grok (xAI)</option>
               <option value="Anthropic">Anthropic (Direct)</option>
+              <option value="Gemini">Gemini (Google AI)</option>
               <option value="Ollama">Ollama (Local)</option>
             </select>
           </div>
@@ -1570,7 +1571,12 @@ const App: React.FC = () => {
               value={formData.llmModel}
               onChange={handleChange}
               className="form-control"
-              placeholder={formData.llmProvider === 'Ollama' ? 'e.g. llama3.2:latest' : formData.llmProvider === 'OpenRouter' ? 'e.g. google/gemini-pro-1.5' : 'e.g. claude-3-5-sonnet-latest'}
+              placeholder={
+                formData.llmProvider === 'Ollama'     ? 'e.g. llama3.2:latest' :
+                formData.llmProvider === 'OpenRouter' ? 'e.g. google/gemini-pro-1.5' :
+                formData.llmProvider === 'Gemini'     ? 'e.g. gemini-2.0-flash' :
+                'e.g. claude-3-5-sonnet-latest'
+              }
             />
           </div>
 

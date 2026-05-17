@@ -2,12 +2,50 @@ import React, { useState, useMemo, useEffect, useRef, ReactNode } from 'react';
 import {
   CheckCircle2, XCircle, Loader, FileCode2, Copy, Check,
   Download, Save, Wand2, AlertCircle, ChevronDown, ChevronRight,
-  RefreshCw, AlertTriangle, StopCircle, Circle,
+  RefreshCw, AlertTriangle, StopCircle, Circle, Lock, Search,
 } from 'lucide-react';
-import type { FrameworkConfig } from './FrameworkSettingsModal';
+import type { FrameworkConfig, MCPServerDescriptor } from './FrameworkSettingsModal';
 
 const API_BASE = 'http://127.0.0.1:8000';
 const FALLBACK_GROUP_NAME = 'Ungrouped';
+
+// Mirrors mcp_catalog.py — shown when backend returns no recommendations.
+// {FRAMEWORK_PATH} replaced at render time with actual frameworkConfig.frameworkPath.
+const STATIC_MCP_CATALOG = (frameworkPath: string) => [
+  {
+    name: 'playwright',
+    command: 'npx',
+    args: ['@playwright/mcp@latest', '--headless'],
+    transport: 'stdio',
+    source_file: 'catalog',
+    env: {},
+    enabled: true,
+    description: 'Official Microsoft Playwright MCP — live browser automation and DOM inspection during script generation',
+    catalog_source: true,
+  },
+  {
+    name: 'filesystem',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-filesystem@latest', frameworkPath],
+    transport: 'stdio',
+    source_file: 'catalog',
+    env: {},
+    enabled: true,
+    description: 'MCP Filesystem — read and write test files and page objects inside the framework directory',
+    catalog_source: true,
+  },
+  {
+    name: 'fetch',
+    command: 'uvx',
+    args: ['mcp-server-fetch'],
+    transport: 'stdio',
+    source_file: 'catalog',
+    env: {},
+    enabled: true,
+    description: 'MCP Fetch — inspect live URLs and REST API responses referenced in test scenarios',
+    catalog_source: true,
+  },
+];
 const EMPTY_TOKENS = new Set(['', 'n/a', 'na', 'none', 'null', 'tbd', '-']);
 
 // Mirrors tools/test_grouping_service.py — exact same fallback rules.
@@ -115,6 +153,44 @@ type MCPToolCallEntry = {
 
 type MCPServerHealth = { ok: boolean; tools: string[]; error: string };
 
+interface RegistryPackage {
+  registryType: string;
+  identifier: string;
+  transport?: { type: string };
+}
+interface RegistryServerItem {
+  name: string;
+  description?: string;
+  packages?: RegistryPackage[];
+}
+
+const MCP_REGISTRY_URL = 'https://registry.modelcontextprotocol.io/v0.1/servers';
+
+function normalizeRegistryServer(s: RegistryServerItem): MCPServerDescriptor | null {
+  const pkg = s.packages?.find(p => p.registryType === 'npm' || p.registryType === 'pypi');
+  if (!pkg) return null;
+  const command = pkg.registryType === 'npm' ? 'npx' : 'uvx';
+  const args = pkg.registryType === 'npm' ? ['-y', pkg.identifier] : [pkg.identifier];
+  const nameParts = s.name.split('/');
+  const shortName = nameParts[nameParts.length - 1];
+  return {
+    name: shortName,
+    command,
+    args,
+    transport: pkg.transport?.type ?? 'stdio',
+    source_file: 'registry.modelcontextprotocol.io',
+    env: {},
+    enabled: true,
+    description: s.description,
+    catalog_source: true,
+  };
+}
+
+function isMCPDuplicate(candidate: MCPServerDescriptor, existing: MCPServerDescriptor[]): boolean {
+  const candKey = `${candidate.command} ${candidate.args.join(' ')}`;
+  return existing.some(e => e.name === candidate.name || `${e.command} ${e.args.join(' ')}` === candKey);
+}
+
 export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig, testCases, onToast }: Props): ReactNode {
   const [view, setView] = useState<View>('preview');
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +207,11 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
   const [mcpHealth, setMcpHealth] = useState<Record<string, MCPServerHealth>>({});
   const [mcpHealthChecking, setMcpHealthChecking] = useState(false);
   const [mcpToolCallsByModule, setMcpToolCallsByModule] = useState<Record<string, MCPToolCallEntry[]>>({});
+  const [mcpSearch, setMcpSearch] = useState('');
+  const [selectedRecommended, setSelectedRecommended] = useState<Set<string>>(new Set());
+  const [userAddedMCPs, setUserAddedMCPs] = useState<MCPServerDescriptor[]>([]);
+  const [onlineResults, setOnlineResults] = useState<MCPServerDescriptor[]>([]);
+  const [onlineSearching, setOnlineSearching] = useState(false);
   const currentRunningModuleRef = useRef<string | null>(null);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -188,6 +269,8 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
     setSaveFeedback(null);
     setPendingOverwrite(null);
     setMcpToolCallsByModule({});
+    setMcpSearch('');
+    setSelectedRecommended(new Set());
     currentRunningModuleRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
@@ -229,6 +312,24 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
       if (staleTimerRef.current !== null) window.clearInterval(staleTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (mcpSearch.length < 2) { setOnlineResults([]); setOnlineSearching(false); return; }
+    setOnlineSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${MCP_REGISTRY_URL}?search=${encodeURIComponent(mcpSearch)}&limit=20`);
+        if (!res.ok) { setOnlineResults([]); return; }
+        const data = await res.json();
+        const normalized = (data.servers ?? [])
+          .map((entry: { server: RegistryServerItem }) => normalizeRegistryServer(entry.server))
+          .filter((s: MCPServerDescriptor | null): s is MCPServerDescriptor => s !== null);
+        setOnlineResults(normalized);
+      } catch { setOnlineResults([]); }
+      finally { setOnlineSearching(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [mcpSearch]);
 
   if (!isOpen) return null;
 
@@ -346,6 +447,11 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
         .filter(([name, on]) => on && mcpHealth[name]?.ok !== false)
         .map(([name]) => name);
 
+      const selectedRecommendedDescs = [
+        ...(frameworkConfig.schemaPreview?.recommended_mcp_servers ?? []).filter(s => selectedRecommended.has(s.name)),
+        ...userAddedMCPs,
+      ];
+
       const res = await fetch(`${API_BASE}/generate-test-scripts`, {
         method: 'POST',
         headers: {
@@ -363,6 +469,7 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
           request_id: requestId,
           config_context: frameworkConfig.schemaPreview?.config_context,
           enabled_mcp_servers: enabledMcpServers.length > 0 ? enabledMcpServers : null,
+          extra_mcp_descriptors: selectedRecommendedDescs.length > 0 ? selectedRecommendedDescs : null,
         }),
         signal: controller.signal,
       });
@@ -997,13 +1104,23 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
 
       {/* MCP Servers section */}
       {(() => {
-        const servers = frameworkConfig.schemaPreview?.mcp_servers ?? [];
-        if (servers.length === 0) return null;
-        const anyEnabledUnhealthy = servers.some(s =>
-          mcpToggles[s.name] && mcpHealth[s.name] && !mcpHealth[s.name].ok
-        );
+        const coreSrvs = frameworkConfig.schemaPreview?.mcp_servers ?? [];
+        const backendRecs = frameworkConfig.schemaPreview?.recommended_mcp_servers ?? [];
+        const recSrvs = backendRecs.length > 0
+          ? backendRecs
+          : STATIC_MCP_CATALOG(frameworkConfig.frameworkPath);
+
+        const filtered = recSrvs.filter(s => {
+          if (!mcpSearch) return true;
+          const q = mcpSearch.toLowerCase();
+          return s.name.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q);
+        });
+
+        const anyEnabledUnhealthy = coreSrvs.some(s => mcpHealth[s.name] && !mcpHealth[s.name].ok);
+
         return (
           <div style={{ marginBottom: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+            {/* Panel header */}
             <div style={{ padding: '0.55rem 0.9rem', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)' }}>MCP Servers</span>
               {mcpHealthChecking && <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} />}
@@ -1011,39 +1128,190 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
                 Enable to allow LLM to inspect live app during generation
               </span>
             </div>
+
+            {/* Unhealthy warning — core servers only */}
             {anyEnabledUnhealthy && (
               <div style={{ padding: '0.55rem 0.9rem', backgroundColor: 'rgba(234,179,8,0.08)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.77rem', color: '#92400e' }}>
                 <AlertTriangle size={13} />
-                <span>One or more enabled MCP servers failed health check. They will be skipped during generation.</span>
-                <button style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontWeight: 600, fontSize: '0.77rem', padding: '0 0.3rem' }} onClick={handleStartGenerate}>
-                  Proceed anyway
-                </button>
+                <span>One or more core MCP servers failed health check. They will be skipped during generation.</span>
               </div>
             )}
-            {servers.map((srv, idx) => {
-              const health = mcpHealth[srv.name];
-              const enabled = mcpToggles[srv.name] ?? true;
-              return (
-                <div key={srv.name} style={{ padding: '0.55rem 0.9rem', borderBottom: idx < servers.length - 1 ? '1px solid var(--border-color)' : 'none', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <input type="checkbox" checked={enabled} onChange={e => setMcpToggles(p => ({ ...p, [srv.name]: e.target.checked }))} style={{ cursor: 'pointer' }} />
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--text-main)' }}>{srv.name}</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>{srv.source_file}</span>
-                  </div>
-                  {mcpHealthChecking && !health && <Loader size={12} style={{ color: 'var(--text-muted)' }} />}
-                  {health?.ok && (
-                    <span style={{ fontSize: '0.72rem', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <CheckCircle2 size={12} /> {health.tools.length} tool{health.tools.length !== 1 ? 's' : ''}
-                    </span>
-                  )}
-                  {health && !health.ok && (
-                    <span title={health.error} style={{ fontSize: '0.72rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <XCircle size={12} /> unreachable
-                    </span>
-                  )}
+
+            {/* ── Core servers (from project config — locked always-on) ── */}
+            {coreSrvs.length > 0 && (
+              <>
+                <div style={{ padding: '0.3rem 0.9rem', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Lock size={10} style={{ color: 'var(--text-muted)' }} />
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Core · from project config
+                  </span>
                 </div>
-              );
-            })}
+                {coreSrvs.map((srv, idx) => {
+                  const health = mcpHealth[srv.name];
+                  const hasMore = idx < coreSrvs.length - 1 || recSrvs.length > 0;
+                  return (
+                    <div key={srv.name} style={{ padding: '0.55rem 0.9rem', borderBottom: hasMore ? '1px solid var(--border-color)' : 'none', display: 'flex', alignItems: 'center', gap: '0.75rem', backgroundColor: 'rgba(37,99,235,0.02)' }}>
+                      <input type="checkbox" checked readOnly disabled style={{ cursor: 'not-allowed', opacity: 0.6 }} />
+                      <Lock size={10} style={{ color: '#2563eb', flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--text-main)' }}>{srv.name}</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>{srv.source_file}</span>
+                      </div>
+                      {mcpHealthChecking && !health && <Loader size={12} style={{ color: 'var(--text-muted)' }} />}
+                      {health?.ok && (
+                        <span style={{ fontSize: '0.72rem', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <CheckCircle2 size={12} /> {health.tools.length} tool{health.tools.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {health && !health.ok && (
+                        <span title={health.error} style={{ fontSize: '0.72rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <XCircle size={12} /> unreachable
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {/* ── Recommended servers (from catalog — optional, searchable) ── */}
+            {recSrvs.length > 0 && (
+              <>
+                <div style={{ padding: '0.3rem 0.9rem', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Wand2 size={10} style={{ color: 'var(--text-muted)' }} />
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Recommended{selectedRecommended.size > 0 ? ` · ${selectedRecommended.size} selected` : ''}
+                  </span>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem', border: '1px solid var(--border-color)', borderRadius: '5px', padding: '0.18rem 0.45rem', backgroundColor: 'var(--bg-main)' }}>
+                    <Search size={11} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                    <input
+                      type="text"
+                      placeholder="Search MCPs…"
+                      value={mcpSearch}
+                      onChange={e => setMcpSearch(e.target.value)}
+                      style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '0.75rem', color: 'var(--text-main)', width: '160px' }}
+                    />
+                    {onlineSearching && <Loader size={11} style={{ color: 'var(--text-muted)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+                  </div>
+                </div>
+                {filtered.length === 0 && mcpSearch && mcpSearch.length < 2 && (
+                  <div style={{ padding: '0.6rem 0.9rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    No MCPs match "{mcpSearch}"
+                  </div>
+                )}
+                {filtered.map((srv, idx) => {
+                  const selected = selectedRecommended.has(srv.name);
+                  return (
+                    <div key={srv.name} style={{ padding: '0.55rem 0.9rem', borderBottom: idx < filtered.length - 1 ? '1px solid var(--border-color)' : 'none', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={e => setSelectedRecommended(prev => {
+                          const n = new Set(prev);
+                          if (e.target.checked) n.add(srv.name); else n.delete(srv.name);
+                          return n;
+                        })}
+                        style={{ cursor: 'pointer', marginTop: '3px', flexShrink: 0 }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--text-main)' }}>{srv.name}</span>
+                          <span style={{ ...S.chip, fontSize: '0.65rem', backgroundColor: 'rgba(124,58,237,0.08)', color: '#7c3aed', borderColor: 'rgba(124,58,237,0.2)' }}>catalog</span>
+                          <code style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{srv.command} {srv.args.slice(0, 2).join(' ')}</code>
+                        </div>
+                        {srv.description && (
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                            {srv.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {/* ── User-added MCPs (session) ── */}
+            {userAddedMCPs.length > 0 && (
+              <>
+                <div style={{ padding: '0.3rem 0.9rem', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <CheckCircle2 size={10} style={{ color: '#16a34a' }} />
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Added · {userAddedMCPs.length}
+                  </span>
+                </div>
+                {userAddedMCPs.map((srv, idx) => (
+                  <div key={`added-${srv.name}`} style={{ padding: '0.55rem 0.9rem', borderBottom: idx < userAddedMCPs.length - 1 ? '1px solid var(--border-color)' : 'none', display: 'flex', alignItems: 'flex-start', gap: '0.75rem', backgroundColor: 'rgba(22,163,74,0.03)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--text-main)' }}>{srv.name}</span>
+                        <span style={{ ...S.chip, fontSize: '0.65rem', backgroundColor: 'rgba(22,163,74,0.1)', color: '#16a34a', borderColor: 'rgba(22,163,74,0.25)' }}>registry</span>
+                        <code style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{srv.command} {srv.args.slice(0, 2).join(' ')}</code>
+                      </div>
+                      {srv.description && (
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{srv.description}</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setUserAddedMCPs(prev => prev.filter(s => s.name !== srv.name))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px', borderRadius: '3px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                      title="Remove"
+                    >
+                      <XCircle size={14} />
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* ── Online registry results ── */}
+            {mcpSearch.length >= 2 && (
+              <>
+                <div style={{ padding: '0.3rem 0.9rem', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Search size={10} style={{ color: 'var(--text-muted)' }} />
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Online · registry.modelcontextprotocol.io
+                  </span>
+                  {onlineSearching && <Loader size={10} style={{ color: 'var(--text-muted)', animation: 'spin 1s linear infinite' }} />}
+                </div>
+                {!onlineSearching && onlineResults.length === 0 && (
+                  <div style={{ padding: '0.6rem 0.9rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    No online results for "{mcpSearch}"
+                  </div>
+                )}
+                {onlineResults.map((srv, idx) => {
+                  const allExisting = [
+                    ...(frameworkConfig.schemaPreview?.mcp_servers ?? []),
+                    ...(frameworkConfig.schemaPreview?.recommended_mcp_servers ?? []),
+                    ...STATIC_MCP_CATALOG(frameworkConfig.frameworkPath),
+                    ...userAddedMCPs,
+                  ];
+                  const dup = isMCPDuplicate(srv, allExisting);
+                  return (
+                    <div key={`online-${srv.name}-${idx}`} style={{ padding: '0.55rem 0.9rem', borderBottom: idx < onlineResults.length - 1 ? '1px solid var(--border-color)' : 'none', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--text-main)' }}>{srv.name}</span>
+                          <span style={{ ...S.chip, fontSize: '0.65rem', backgroundColor: 'rgba(37,99,235,0.07)', color: '#2563eb', borderColor: 'rgba(37,99,235,0.2)' }}>{srv.transport}</span>
+                          <code style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{srv.command} {srv.args.slice(0, 2).join(' ')}</code>
+                        </div>
+                        {srv.description && (
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{srv.description}</div>
+                        )}
+                      </div>
+                      <button
+                        disabled={dup}
+                        onClick={() => { if (!dup) setUserAddedMCPs(prev => [...prev, srv]); }}
+                        title={dup ? 'Already in list' : 'Add to session'}
+                        style={{ ...S.btnOutline, fontSize: '0.72rem', padding: '0.25rem 0.6rem', flexShrink: 0, opacity: dup ? 0.45 : 1, cursor: dup ? 'not-allowed' : 'pointer' } as React.CSSProperties}
+                      >
+                        {dup ? 'Added' : '+ Add'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         );
       })()}

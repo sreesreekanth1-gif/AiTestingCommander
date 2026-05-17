@@ -34,8 +34,10 @@ from llm_router import (
     _call_claude,
     _call_ollama,
     _call_openrouter,
+    _call_gemini,
     _request_with_retry,
     _suggest_alternate_model,
+    _repair_truncated_json,
     call_with_tools,
 )
 from script_policy_validator import validate_generation
@@ -51,6 +53,7 @@ PROVIDER_PROMPT_BUDGET = {
     "Anthropic":  80000,
     "Ollama":     12000,
     "OpenRouter": 50000,
+    "Gemini":     80000,
 }
 
 # Max serialized payload size for [{"role":"system"},{"role":"user"}] messages.
@@ -62,6 +65,7 @@ PROVIDER_PAYLOAD_BUDGET = {
     "Anthropic":  400000,
     "Ollama":     90000,
     "OpenRouter": 180000,
+    "Gemini":     400000,
 }
 
 SYSTEM_PROMPT = (
@@ -548,38 +552,73 @@ def _build_user_prompt(framework_schema: Dict[str, Any],
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 def _call_ollama_text(endpoint: str, model: str, messages: list) -> str:
-    """Ollama call without `format: json` so we get raw code back."""
     resp = _request_with_retry(
         requests.post,
         f"{endpoint.rstrip('/')}/api/chat",
-        json={"model": model or "llama3", "messages": messages, "stream": False},
+        json={"model": model or "llama3", "messages": messages, "stream": False, "format": "json"},
         timeout=300,
     )
     resp.raise_for_status()
     return resp.json()["message"]["content"]
 
 
+_OPENROUTER_FALLBACKS = [
+    "google/gemini-flash-1.5",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+]
+
+
 def _call_openrouter_text(api_key: str, model: str, messages: list) -> str:
-    """OpenRouter call without response_format=json_object."""
-    resp = _request_with_retry(
-        requests.post,
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/otsi-smart-qa",
-            "X-Title": "TestPulse AI-OTSI",
-        },
-        json={
-            "model": model or "google/gemini-pro-1.5",
-            "messages": messages,
-            "temperature": 0.1,
-            "max_tokens": 8192,
-        },
-        timeout=180,
+    """OpenRouter call without response_format=json_object. Falls back through
+    _OPENROUTER_FALLBACKS when primary model returns 429 or 502."""
+    primary = model or "google/gemini-flash-1.5"
+    candidates = [primary] + [m for m in _OPENROUTER_FALLBACKS if m != primary]
+    last_err: Exception = RuntimeError("No models tried")
+    for candidate in candidates:
+        try:
+            resp = _request_with_retry(
+                requests.post,
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/otsi-smart-qa",
+                    "X-Title": "TestPulse AI-OTSI",
+                },
+                json={
+                    "model": candidate,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "max_tokens": 8192,
+                    "response_format": {"type": "json_object"},
+                },
+                timeout=180,
+            )
+            if resp.status_code in (429, 502):
+                last_err = requests.exceptions.HTTPError(
+                    f"HTTP {resp.status_code} on {candidate}", response=resp
+                )
+                print(f"[OpenRouter] {resp.status_code} on {candidate!r}, trying next fallback")
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if "choices" not in data:
+                raise RuntimeError(f"OpenRouter error (full response): {data}")
+            if candidate != primary:
+                print(f"[OpenRouter] Used fallback model {candidate!r}")
+            return data["choices"][0]["message"]["content"]
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code in (429, 502):
+                last_err = e
+                print(f"[OpenRouter] {e.response.status_code} on {candidate!r}, trying next fallback")
+                continue
+            raise
+    raise RuntimeError(
+        f"All OpenRouter models rate-limited or unavailable. "
+        f"Add your own API key at https://openrouter.ai/settings/integrations. "
+        f"Last error: {last_err}"
     )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
 
 
 def _dispatch(provider: str, api_key: str, model: str, endpoint: str,
@@ -595,6 +634,8 @@ def _dispatch(provider: str, api_key: str, model: str, endpoint: str,
         return _call_ollama_text(endpoint, model, messages)
     if provider == "OpenRouter":
         return _call_openrouter_text(api_key, model, messages)
+    if provider == "Gemini":
+        return _call_gemini(api_key, model, messages)
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
@@ -637,11 +678,14 @@ def _first_nonempty_code(*values: Any) -> str:
 def _extract_first_json_object(text: str) -> Optional[Dict[str, Any]]:
     """
     Best-effort extraction of first JSON object from model output.
-    Accepts plain JSON or prose with an embedded JSON object.
+    Accepts plain JSON, markdown-fenced JSON, or prose with an embedded JSON object.
     """
     if not text:
         return None
     s = text.strip()
+    # Strip markdown fences (```json ... ``` or ``` ... ```)
+    s = re.sub(r"^```(?:json)?\s*\n?", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\n?```\s*$", "", s).strip()
     try:
         obj = json.loads(s)
         if isinstance(obj, dict):
@@ -655,6 +699,12 @@ def _extract_first_json_object(text: str) -> Optional[Dict[str, Any]]:
     candidate = s[start:end + 1]
     try:
         obj = json.loads(candidate)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    try:
+        repaired = _repair_truncated_json(candidate)
+        obj = json.loads(repaired)
         return obj if isinstance(obj, dict) else None
     except Exception:
         return None
@@ -693,6 +743,7 @@ def _normalize_plan(
     default_test_path = derive_target_file_path(framework_schema, module_name)
     parsed = _extract_first_json_object(raw_text)
     if not parsed:
+        print(f"[ScriptGen] Non-JSON output for module={module_name!r}; using raw content as single-file fallback.")
         return {
             "test_file": {
                 "path": default_test_path,
@@ -700,7 +751,7 @@ def _normalize_plan(
             },
             "page_files": [],
             "impacted_test_files": [],
-            "warnings": ["LLM returned non-JSON output; fell back to single-file parsing."],
+            "warnings": [],
         }
 
     test_file = parsed.get("test_file") if isinstance(parsed.get("test_file"), dict) else {}

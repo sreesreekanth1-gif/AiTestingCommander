@@ -444,6 +444,42 @@ const analyzeWithOpenAICompatible = async (payload: Payload, contextText: string
   return parseGapAnalysis(JSON.parse(jsonMatch[0]), issueId, contextText)
 }
 
+const analyzeWithGemini = async (payload: Payload, contextText: string) => {
+  const apiKey = (payload.llmApiKey || '').trim()
+  const model = (payload.llmModel || '').trim()
+  const issueId = (payload.issueId || 'UNKNOWN').trim()
+
+  if (!apiKey) throw new Error('Missing Gemini API key.')
+  if (!model) throw new Error('Missing Model Name.')
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: buildGapPrompt(issueId, contextText) }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+      }),
+    }
+  )
+
+  if (response.status === 401 || response.status === 403) throw new Error('Invalid Gemini API key.')
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Gemini analysis failed with status ${response.status}${text ? `: ${text.slice(0, 180)}` : ''}`)
+  }
+
+  const result = await response.json()
+  const raw = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+  if (!raw) throw new Error('Gemini returned an empty gap analysis response.')
+
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('Gemini response did not contain valid JSON.')
+
+  return parseGapAnalysis(JSON.parse(jsonMatch[0]), issueId, contextText)
+}
+
 const analyzeGaps = (payload: Payload, contextText: string) => {
   switch (payload.llmProvider) {
     case 'Ollama':
@@ -457,6 +493,8 @@ const analyzeGaps = (payload: Payload, contextText: string) => {
       return analyzeWithOpenAICompatible(payload, contextText, 'Grok', 'https://api.x.ai/v1')
     case 'OpenRouter':
       return analyzeWithOpenAICompatible(payload, contextText, 'OpenRouter', 'https://openrouter.ai/api/v1')
+    case 'Gemini':
+      return analyzeWithGemini(payload, contextText)
     default:
       throw new Error(`Gap analysis is not supported for provider: ${payload.llmProvider}`)
   }
@@ -565,6 +603,30 @@ const callLlmWithPrompt = async (payload: Payload, prompt: string): Promise<any>
       if (!jsonMatch) throw new Error('Response did not contain valid JSON.')
       return JSON.parse(jsonMatch[0])
     }
+    case 'Gemini': {
+      const apiKey = (payload.llmApiKey || '').trim()
+      const model = (payload.llmModel || '').trim()
+      if (!apiKey) throw new Error('Missing Gemini API key.')
+      if (!model) throw new Error('Missing Model Name.')
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+          }),
+        }
+      )
+      if (!response.ok) throw new Error(`Gemini failed with status ${response.status}`)
+      const result = await response.json()
+      const raw = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      if (!raw) throw new Error('Gemini returned an empty response.')
+      const jsonMatch = raw.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error('Gemini response did not contain valid JSON.')
+      return JSON.parse(jsonMatch[0])
+    }
     default:
       throw new Error(`Coverage analysis is not supported for provider: ${payload.llmProvider}`)
   }
@@ -622,6 +684,15 @@ const verifyHostedProvider = async (payload: Payload) => {
     extractModels = (data) =>
       Array.isArray(data?.data)
         ? data.data.map((model: any) => normalizeModelName(model.id)).filter(Boolean)
+        : []
+  } else if (provider === 'Gemini') {
+    url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    headers = { Accept: 'application/json' }
+    extractModels = (data) =>
+      Array.isArray(data?.models)
+        ? data.models
+            .map((m: any) => normalizeModelName((m.name || '').replace(/^models\//, '')))
+            .filter(Boolean)
         : []
   } else {
     throw new Error(`Unsupported AI provider: ${provider}`)

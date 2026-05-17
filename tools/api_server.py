@@ -160,7 +160,8 @@ class GenerateTestScriptsPayload(BaseModel):
     target_test_case_id: str = ""  # optional per-test-case regenerate
     request_id: str = ""      # client-supplied id for server-side cancel
     config_context: Optional[Dict[str, Any]] = None  # parsed config/env/dependency info from analyze-framework
-    enabled_mcp_servers: Optional[List[str]] = None  # names of MCP servers to activate during generation
+    enabled_mcp_servers: Optional[List[str]] = None  # names of discovered MCP servers to activate
+    extra_mcp_descriptors: Optional[List[Dict[str, Any]]] = None  # full descriptors for catalog MCP servers
 
 
 class CheckMCPServersPayload(BaseModel):
@@ -443,10 +444,15 @@ def verify_connection(payload: VerifyPayload):
                     headers={"Authorization": f"Bearer {payload.llmApiKey}"},
                     timeout=8,
                 )
+            elif provider == "Gemini":
+                res = requests.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={payload.llmApiKey}",
+                    timeout=8,
+                )
             else:
                 raise HTTPException(status_code=400, detail=f"Unknown LLM provider: {provider}")
 
-            if res.status_code == 401:
+            if res.status_code in (401, 403):
                 raise HTTPException(status_code=401, detail=f"{provider} API Key rejected — unauthorized.")
             if not res.ok:
                 raise HTTPException(status_code=400, detail=f"{provider} returned HTTP {res.status_code}.")
@@ -455,18 +461,19 @@ def verify_connection(payload: VerifyPayload):
             requested = (payload.llmModel or "").strip().lower()
             if requested:
                 data = res.json()
-                # Unified "id" extraction for standard AI APIs
-                available = [m.get("id", "") for m in data.get("data", [])]
-                available = [m for m in available if m] # filter empty
-                
+                if provider == "Gemini":
+                    # Gemini returns {"models": [{"name": "models/gemini-2.0-flash", ...}]}
+                    available = [m.get("name", "").replace("models/", "") for m in data.get("models", [])]
+                else:
+                    available = [m.get("id", "") for m in data.get("data", [])]
+                available = [m for m in available if m]
+
                 normalized_available = [m.lower() for m in available]
-                
+
                 if requested not in normalized_available:
-                    # Find similar models
                     similar = [m for m in available if requested in m.lower()]
-                    suggestion_header = f"Top suggestions" if similar else "Available samples"
+                    suggestion_header = "Top suggestions" if similar else "Available samples"
                     list_to_show = similar[:15] if similar else available[:15]
-                    
                     suggestion_str = ", ".join(list_to_show)
                     msg = (
                         f"Model '{payload.llmModel}' not found for {provider}. "
@@ -820,12 +827,20 @@ def analyze_framework_endpoint(payload: AnalyzeFrameworkPayload):
         }
 
     from mcp_discovery import discover_mcp_servers
+    from mcp_catalog import recommend_mcp_servers
     try:
         mcp_servers = discover_mcp_servers(abs_path)
     except Exception:
         mcp_servers = []
 
+    discovered_names = {s.get("name", "") for s in mcp_servers}
+    try:
+        recommended_mcp = recommend_mcp_servers(abs_path, schema.get("tech_stack") or {}, discovered_names)
+    except Exception:
+        recommended_mcp = []
+
     schema["mcp_servers"] = mcp_servers
+    schema["recommended_mcp_servers"] = recommended_mcp
 
     # Compact preview the UI can render without overwhelming the user
     preview = {
@@ -839,6 +854,7 @@ def analyze_framework_endpoint(payload: AnalyzeFrameworkPayload):
         "sample_imports": schema.get("import_patterns", [])[:10],
         "config_context": config_context,
         "mcp_servers": mcp_servers,
+        "recommended_mcp_servers": recommended_mcp,
     }
     return {"status": "success", "schema_preview": preview, "schema": schema}
 
@@ -1015,10 +1031,15 @@ def test_llm_connection(payload: TestLLMConnectionPayload):
                 headers={"Authorization": f"Bearer {payload.llmApiKey}"},
                 timeout=8,
             )
+        elif provider == "Gemini":
+            res = requests.get(
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={payload.llmApiKey}",
+                timeout=8,
+            )
         else:
             raise HTTPException(status_code=400, detail=f"Unknown LLM provider: {provider}")
 
-        if res.status_code == 401:
+        if res.status_code in (401, 403):
             raise HTTPException(status_code=401, detail=f"{provider} API Key rejected — unauthorized.")
         if not res.ok:
             raise HTTPException(status_code=400, detail=f"{provider} returned HTTP {res.status_code}.")
@@ -1029,7 +1050,10 @@ def test_llm_connection(payload: TestLLMConnectionPayload):
                 data = res.json()
             except Exception:
                 data = {}
-            available = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict)]
+            if provider == "Gemini":
+                available = [m.get("name", "").replace("models/", "") for m in data.get("models", []) if isinstance(m, dict)]
+            else:
+                available = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict)]
             available = [m for m in available if m]
             if available and requested not in [m.lower() for m in available]:
                 similar = [m for m in available if requested in m.lower()]
@@ -1245,10 +1269,12 @@ async def _stream_generate_test_scripts(payload: GenerateTestScriptsPayload, req
 
             # ── Start MCP servers if requested ────────────────────────────────
             enabled_names = set(payload.enabled_mcp_servers or [])
-            if enabled_names:
+            extra_descs = payload.extra_mcp_descriptors or []
+            if enabled_names or extra_descs:
                 from mcp_client import start_mcp_servers
-                all_mcp = framework_schema.get("mcp_servers") or []
-                to_start = [s for s in all_mcp if s.get("name") in enabled_names]
+                all_discovered = framework_schema.get("mcp_servers") or []
+                to_start = [s for s in all_discovered if s.get("name") in enabled_names]
+                to_start += extra_descs  # catalog-selected servers are all opted-in explicitly
                 if to_start:
                     for desc in to_start:
                         await emit("mcp_connecting", {

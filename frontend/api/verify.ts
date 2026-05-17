@@ -74,6 +74,15 @@ const verifyHostedProvider = async (payload: any) => {
       Array.isArray(data?.data)
         ? data.data.map((model: any) => normalizeModelName(model.id)).filter(Boolean)
         : [];
+  } else if (provider === 'Gemini') {
+    url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+    headers = { Accept: 'application/json' };
+    extractModels = (data) =>
+      Array.isArray(data?.models)
+        ? data.models
+            .map((m: any) => normalizeModelName((m.name || '').replace(/^models\//, '')))
+            .filter(Boolean)
+        : [];
   } else {
     throw new Error(`Unsupported AI provider: ${provider}`);
   }

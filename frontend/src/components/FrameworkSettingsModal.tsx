@@ -36,7 +36,7 @@ function deobfuscate(encoded: string): string {
   }
 }
 
-const LLM_PROVIDERS = ['GROQ', 'Grok', 'Claude', 'Ollama', 'OpenRouter'] as const;
+const LLM_PROVIDERS = ['GROQ', 'Grok', 'Claude', 'Ollama', 'OpenRouter', 'Gemini'] as const;
 type LlmProvider = typeof LLM_PROVIDERS[number];
 
 export interface MCPServerDescriptor {
@@ -47,6 +47,8 @@ export interface MCPServerDescriptor {
   source_file: string;
   env: Record<string, string>;
   enabled: boolean;
+  description?: string;
+  catalog_source?: boolean;
 }
 
 export interface FrameworkSchemaPreview {
@@ -59,6 +61,7 @@ export interface FrameworkSchemaPreview {
   page_object_names?: string[];
   sample_imports?: string[];
   mcp_servers?: MCPServerDescriptor[];
+  recommended_mcp_servers?: MCPServerDescriptor[];
   config_context?: {
     discovered_files: string[];
     env_vars: Record<string, string>;
@@ -357,7 +360,7 @@ export default function FrameworkSettingsModal({ isOpen, onClose, onSaved, onCle
     dialog: {
       backgroundColor: 'var(--bg-main)',
       borderRadius: '12px', maxWidth: '720px', width: '95%',
-      maxHeight: '90vh', display: 'flex' as const, flexDirection: 'column' as const,
+      minHeight: '80vh', maxHeight: '95vh', display: 'flex' as const, flexDirection: 'column' as const,
       overflow: 'hidden' as const,
       boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
     },
@@ -634,9 +637,9 @@ export default function FrameworkSettingsModal({ isOpen, onClose, onSaved, onCle
 
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.9rem' }}>
             <button
-              style={S.btnOutline as React.CSSProperties}
+              style={S.btnPrimary(!form.frameworkPath.trim() || analyzing) as React.CSSProperties}
               onClick={handleAnalyze}
-              disabled={analyzing}
+              disabled={!form.frameworkPath.trim() || analyzing}
             >
               {analyzing
                 ? <><Loader size={13} className="spin" /> Analyzing…</>
@@ -675,6 +678,7 @@ export default function FrameworkSettingsModal({ isOpen, onClose, onSaved, onCle
                   form.llmProvider === 'Claude'     ? 'claude-sonnet-4-20250514' :
                   form.llmProvider === 'Ollama'     ? 'llama3' :
                   form.llmProvider === 'OpenRouter' ? 'google/gemini-pro-1.5' :
+                  form.llmProvider === 'Gemini'     ? 'gemini-2.0-flash' :
                                                      'grok-beta'
                 }
                 style={S.input(false) as React.CSSProperties}
@@ -726,9 +730,17 @@ export default function FrameworkSettingsModal({ isOpen, onClose, onSaved, onCle
 
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.9rem' }}>
             <button
-              style={S.btnOutline as React.CSSProperties}
+              style={S.btnPrimary(
+                (form.llmProvider !== 'Ollama' && !form.llmApiKey.trim()) ||
+                (form.llmProvider === 'Ollama' && !form.llmEndpoint.trim()) ||
+                testing
+              ) as React.CSSProperties}
               onClick={handleTestLLM}
-              disabled={testing}
+              disabled={
+                (form.llmProvider !== 'Ollama' && !form.llmApiKey.trim()) ||
+                (form.llmProvider === 'Ollama' && !form.llmEndpoint.trim()) ||
+                testing
+              }
             >
               {testing
                 ? <><Loader size={13} className="spin" /> Testing…</>
