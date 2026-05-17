@@ -160,6 +160,12 @@ class GenerateTestScriptsPayload(BaseModel):
     target_test_case_id: str = ""  # optional per-test-case regenerate
     request_id: str = ""      # client-supplied id for server-side cancel
     config_context: Optional[Dict[str, Any]] = None  # parsed config/env/dependency info from analyze-framework
+    enabled_mcp_servers: Optional[List[str]] = None  # names of MCP servers to activate during generation
+
+
+class CheckMCPServersPayload(BaseModel):
+    framework_path: str
+    server_names: Optional[List[str]] = None  # if None, check all discovered servers
 
 
 class CancelGenerationPayload(BaseModel):
@@ -813,6 +819,14 @@ def analyze_framework_endpoint(payload: AnalyzeFrameworkPayload):
             "redacted_keys": [],
         }
 
+    from mcp_discovery import discover_mcp_servers
+    try:
+        mcp_servers = discover_mcp_servers(abs_path)
+    except Exception:
+        mcp_servers = []
+
+    schema["mcp_servers"] = mcp_servers
+
     # Compact preview the UI can render without overwhelming the user
     preview = {
         "framework_path": schema.get("framework_path"),
@@ -824,8 +838,42 @@ def analyze_framework_endpoint(payload: AnalyzeFrameworkPayload):
         "page_object_names": [po.get("name") for po in schema.get("page_objects", [])],
         "sample_imports": schema.get("import_patterns", [])[:10],
         "config_context": config_context,
+        "mcp_servers": mcp_servers,
     }
     return {"status": "success", "schema_preview": preview, "schema": schema}
+
+
+@app.post("/check-mcp-servers")
+def check_mcp_servers_endpoint(payload: CheckMCPServersPayload):
+    """Probe each requested MCP server: start it, list tools, stop it.
+
+    Returns per-server health status so the UI can warn before generation starts.
+    """
+    from mcp_discovery import discover_mcp_servers
+    from mcp_client import check_mcp_server
+
+    fw_path = (payload.framework_path or "").strip()
+    if not fw_path:
+        raise HTTPException(status_code=400, detail="framework_path is required")
+
+    abs_path = os.path.realpath(os.path.abspath(fw_path))
+    if not os.path.isdir(abs_path):
+        raise HTTPException(status_code=400, detail=f"Path is not a directory: {fw_path}")
+
+    all_servers = discover_mcp_servers(abs_path)
+    if payload.server_names:
+        wanted = set(payload.server_names)
+        all_servers = [s for s in all_servers if s.get("name") in wanted]
+
+    results: Dict[str, Any] = {}
+    for desc in all_servers:
+        name = desc.get("name", "")
+        if not name:
+            continue
+        ok, tools, err = check_mcp_server(desc, timeout=10)
+        results[name] = {"ok": ok, "tools": tools, "error": err}
+
+    return {"status": "success", "servers": results}
 
 
 _CHAT_PROBE_DEFAULT_MODEL = {
@@ -1171,6 +1219,7 @@ async def _stream_generate_test_scripts(payload: GenerateTestScriptsPayload, req
         failed = 0
         total = 0
         cancelled_flag = False
+        mcp_sessions: Dict[str, Any] = {}
         try:
             print(f"[ScriptGen] rid={request_id} worker started")
             await emit("request_id", {"request_id": request_id})
@@ -1194,6 +1243,26 @@ async def _stream_generate_test_scripts(payload: GenerateTestScriptsPayload, req
                 await emit("error", {"status": 500, "detail": err_msg})
                 return
 
+            # ── Start MCP servers if requested ────────────────────────────────
+            enabled_names = set(payload.enabled_mcp_servers or [])
+            if enabled_names:
+                from mcp_client import start_mcp_servers
+                all_mcp = framework_schema.get("mcp_servers") or []
+                to_start = [s for s in all_mcp if s.get("name") in enabled_names]
+                if to_start:
+                    for desc in to_start:
+                        await emit("mcp_connecting", {
+                            "server": desc.get("name"), "status": "starting",
+                        })
+                    mcp_sessions = await run_in_threadpool(start_mcp_servers, to_start, 10)
+                    for name in mcp_sessions:
+                        tools = [t.get("name") for t in mcp_sessions[name].tools]
+                        await emit("mcp_ready", {"server": name, "tools": tools})
+                    started_names = set(mcp_sessions.keys())
+                    failed_names = enabled_names - started_names
+                    for fn in failed_names:
+                        await emit("mcp_ready", {"server": fn, "tools": [], "error": "failed to start"})
+
             total = len(groups)
             print(f"[ScriptGen] rid={request_id} start total_groups={total}")
             await emit("start", {
@@ -1205,6 +1274,21 @@ async def _stream_generate_test_scripts(payload: GenerateTestScriptsPayload, req
                 ],
                 "framework_summary": _framework_summary(framework_schema),
             })
+
+            # Build thread-safe MCP tool-call event callback
+            loop = asyncio.get_event_loop()
+
+            def _on_mcp_tool_call(server: str, tool: str, args: dict, status: str, preview):
+                data: Dict[str, Any] = {
+                    "server": server, "tool": tool,
+                    "args": {k: str(v)[:120] for k, v in (args or {}).items()},
+                    "status": status,
+                }
+                if preview:
+                    data["result_preview"] = preview
+                loop.call_soon_threadsafe(queue.put_nowait, _sse("mcp_tool_call", data))
+
+            mcp_callback = _on_mcp_tool_call if mcp_sessions else None
 
             for idx, group in enumerate(groups):
                 module_name = group.get("module") or f"Group {idx}"
@@ -1230,7 +1314,8 @@ async def _stream_generate_test_scripts(payload: GenerateTestScriptsPayload, req
                 await emit("group_start", {"index": idx, "module": module_name})
                 try:
                     gen = await run_in_threadpool(
-                        generate_script_for_group, framework_schema, group, llm_config, refinement, config_context,
+                        generate_script_for_group, framework_schema, group, llm_config,
+                        refinement, config_context, mcp_sessions or None, mcp_callback,
                     )
                     completed += 1
                     print(f"[ScriptGen] rid={request_id} group_complete idx={idx} module={module_name!r}")
@@ -1263,6 +1348,13 @@ async def _stream_generate_test_scripts(payload: GenerateTestScriptsPayload, req
             print(f"[ScriptGen] rid={request_id} worker terminated by {type(e).__name__}: {e}")
             cancelled_flag = True
         finally:
+            # Stop MCP servers regardless of success/failure/cancellation
+            if mcp_sessions:
+                from mcp_client import stop_mcp_servers
+                await run_in_threadpool(stop_mcp_servers, mcp_sessions)
+                for name in mcp_sessions:
+                    await emit("mcp_disconnected", {"server": name})
+
             duration_ms = int((time.monotonic() - started_at) * 1000)
             print(f"[ScriptGen] rid={request_id} done completed={completed} failed={failed} "
                   f"total={total} cancelled={cancelled_flag or cancel_event.is_set()} "

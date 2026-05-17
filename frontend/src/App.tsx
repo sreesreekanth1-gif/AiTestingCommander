@@ -357,6 +357,32 @@ const TestCasesPreview: React.FC<{
   const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('All');
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const formatTcText = (tc: TestCase): string => {
+    const steps = tc.testSteps.map(s =>
+      `  ${s.stepNumber}. ${s.action}${s.expected ? ` | Expected: ${s.expected}` : ''}${s.testData ? ` | Data: ${s.testData}` : ''}`
+    ).join('\n');
+    return [
+      `ID: ${tc.testCaseId}`,
+      `Title: ${tc.testCaseTitle}`,
+      `Module: ${tc.module}`,
+      tc.toolTicketId ? `Jira ID: ${tc.toolTicketId}` : null,
+      `Priority: ${tc.priority}`,
+      `Type: ${tc.testType}`,
+      `Preconditions: ${tc.preconditions}`,
+      `Steps:\n${steps}`,
+      `Test Data: ${tc.testData}`,
+      `Expected Result: ${tc.expectedResult}`,
+    ].filter(Boolean).join('\n');
+  };
+
+  const handleCopy = (tc: TestCase, index: number) => {
+    navigator.clipboard.writeText(formatTcText(tc)).then(() => {
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 1500);
+    });
+  };
   const [typeFilter, setTypeFilter] = useState('All');
 
   const cases = (data?.testCases || []).filter((tc): tc is TestCase => !!tc);
@@ -494,6 +520,13 @@ const TestCasesPreview: React.FC<{
                           <Pencil size={16} />
                         </button>
                       )}
+                      <button
+                        onClick={() => handleCopy(tc, originalIndex)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: copiedIndex === originalIndex ? 'var(--success, #22c55e)' : 'var(--text-muted)', padding: '2px' }}
+                        title="Copy Test Case"
+                      >
+                        {copiedIndex === originalIndex ? <Check size={16} /> : <Copy size={16} />}
+                      </button>
                       {onDelete && (
                         <button
                           onClick={() => onDelete(originalIndex)}

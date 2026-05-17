@@ -751,3 +751,272 @@ def _deterministic_gap_fallback(context: str, issue_id: str) -> dict:
         "gaps":           gaps or ["No obvious gaps detected."],
         "recommendation": "Add explicit acceptance criteria and error-handling details.",
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP Tool-Use Loop
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _claude_chat_with_tools(
+    api_key: str,
+    model: str,
+    messages: list,
+    tools: list,
+) -> tuple:
+    """Single Claude round-trip with tool support.
+
+    Returns (text_or_none, tool_calls_or_empty_list).
+    tool_calls items: {"id": str, "name": str, "arguments": dict}
+    """
+    system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+    user_msgs = [m for m in messages if m["role"] != "system"]
+
+    body: dict = {
+        "model": model or "claude-sonnet-4-20250514",
+        "max_tokens": 16384,
+        "messages": user_msgs,
+        "temperature": 0.1,
+    }
+    if system_msg:
+        body["system"] = system_msg
+    if tools:
+        body["tools"] = tools
+
+    resp = _request_with_retry(
+        requests.post,
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json=body,
+        timeout=180,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    text_parts = []
+    tool_calls = []
+    for block in data.get("content") or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            text_parts.append(block.get("text") or "")
+        elif block.get("type") == "tool_use":
+            tool_calls.append({
+                "id": block.get("id") or f"tu_{len(tool_calls)}",
+                "name": block.get("name") or "",
+                "arguments": block.get("input") or {},
+            })
+
+    text = "".join(text_parts) if text_parts else None
+    return text, tool_calls
+
+
+def _openai_compatible_chat_with_tools(
+    provider: str,
+    api_key: str,
+    model: str,
+    endpoint: str,
+    messages: list,
+    tools: list,
+) -> tuple:
+    """Single OpenAI-compatible round-trip with tool support (Groq/Grok/OpenRouter/Ollama).
+
+    Returns (text_or_none, tool_calls_or_empty_list).
+    """
+    url_map = {
+        "GROQ": "https://api.groq.com/openai/v1/chat/completions",
+        "Grok": "https://api.x.ai/v1/chat/completions",
+        "OpenRouter": "https://openrouter.ai/api/v1/chat/completions",
+        "Ollama": f"{endpoint.rstrip('/')}/v1/chat/completions",
+    }
+    url = url_map.get(provider, url_map["GROQ"])
+
+    headers = {"Content-Type": "application/json"}
+    if provider != "Ollama":
+        headers["Authorization"] = f"Bearer {api_key}"
+    if provider == "OpenRouter":
+        headers["HTTP-Referer"] = "https://github.com/otsi-smart-qa"
+        headers["X-Title"] = "TestPulse AI-OTSI"
+
+    body: dict = {
+        "model": model or "llama-3.3-70b-versatile",
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": 8192,
+    }
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+
+    resp = _request_with_retry(
+        requests.post, url, headers=headers, json=body, timeout=180
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    choice = (data.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    text = msg.get("content") or None
+
+    raw_calls = msg.get("tool_calls") or []
+    tool_calls = []
+    for tc in raw_calls:
+        fn = tc.get("function") or {}
+        raw_args = fn.get("arguments") or "{}"
+        try:
+            args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+        except Exception:
+            args = {}
+        tool_calls.append({
+            "id": tc.get("id") or f"call_{len(tool_calls)}",
+            "name": fn.get("name") or "",
+            "arguments": args,
+        })
+
+    return text, tool_calls
+
+
+def call_with_tools(
+    provider: str,
+    api_key: str,
+    model: str,
+    endpoint: str,
+    messages: list,
+    tools: list,
+    tool_executor,
+    max_rounds: int = 20,
+    on_tool_call=None,
+) -> str:
+    """Tool-use loop: call LLM, execute tool calls via MCP, repeat until text.
+
+    Args:
+        provider:      LLM provider name (Claude, GROQ, Grok, OpenRouter, Ollama)
+        api_key:       Provider API key
+        model:         Model identifier
+        endpoint:      Ollama endpoint (ignored for cloud providers)
+        messages:      Initial message list (system + user)
+        tools:         LLM-format tool definitions (Claude or OpenAI schema)
+        tool_executor: callable(namespaced_tool_name, arguments) -> str
+        max_rounds:    Hard cap on tool-use iterations
+        on_tool_call:  Optional callback(server, tool, args, status, result_preview)
+
+    Returns:
+        Final text response from the LLM.
+
+    Raises:
+        RuntimeError if max_rounds exceeded or if the provider errors.
+    """
+    if not tools:
+        # No tools available — fall back to plain dispatch
+        if provider in ("Claude", "Anthropic"):
+            return _call_claude(api_key, model, messages)
+        elif provider == "GROQ":
+            return _call_groq(api_key, model, messages)
+        elif provider == "Grok":
+            return _call_grok(api_key, model, messages)
+        elif provider == "Ollama":
+            return _call_ollama(endpoint, model, messages)
+        elif provider == "OpenRouter":
+            return _call_openrouter(api_key, model, messages)
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    current_messages = list(messages)
+
+    for round_num in range(max_rounds):
+        if provider in ("Claude", "Anthropic"):
+            text, tool_calls = _claude_chat_with_tools(
+                api_key, model, current_messages, tools
+            )
+        else:
+            text, tool_calls = _openai_compatible_chat_with_tools(
+                provider, api_key, model, endpoint, current_messages, tools
+            )
+
+        if not tool_calls:
+            return text or ""
+
+        # ── execute each tool call ──────────────────────────────────────────
+        tool_results = []
+        for tc in tool_calls:
+            ns_name = tc["name"]
+            arguments = tc.get("arguments") or {}
+            call_id = tc.get("id") or f"call_{round_num}_{len(tool_results)}"
+
+            # parse server / tool for callback
+            if "__" in ns_name:
+                server_part, actual_tool = ns_name.split("__", 1)
+            else:
+                server_part, actual_tool = "mcp", ns_name
+
+            if on_tool_call:
+                on_tool_call(server_part, actual_tool, arguments, "calling", None)
+
+            try:
+                result = tool_executor(ns_name, arguments)
+                preview = result[:300] if isinstance(result, str) else str(result)[:300]
+                if on_tool_call:
+                    on_tool_call(server_part, actual_tool, arguments, "done", preview)
+            except Exception as exc:
+                result = f"[tool error] {exc}"
+                if on_tool_call:
+                    on_tool_call(server_part, actual_tool, arguments, "error", str(exc)[:200])
+
+            tool_results.append({"id": call_id, "name": ns_name, "result": result})
+
+        # ── append tool exchange to messages ────────────────────────────────
+        if provider in ("Claude", "Anthropic"):
+            # assistant message with tool_use content blocks
+            current_messages.append({
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "input": tc.get("arguments") or {},
+                    }
+                    for tc in tool_calls
+                ],
+            })
+            # user message with tool_result blocks
+            current_messages.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tr["id"],
+                        "content": tr["result"],
+                    }
+                    for tr in tool_results
+                ],
+            })
+        else:
+            # OpenAI-compatible: assistant with tool_calls, then tool role messages
+            current_messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc.get("arguments") or {}),
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            })
+            for tr in tool_results:
+                current_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr["id"],
+                    "content": tr["result"],
+                })
+
+    raise RuntimeError(
+        f"MCP tool-use loop exceeded {max_rounds} rounds for provider {provider}"
+    )

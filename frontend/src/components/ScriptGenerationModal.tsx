@@ -105,6 +105,16 @@ function newRequestId(): string {
   return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+type MCPToolCallEntry = {
+  server: string;
+  tool: string;
+  args: Record<string, string>;
+  status: 'calling' | 'done' | 'error';
+  result_preview?: string;
+};
+
+type MCPServerHealth = { ok: boolean; tools: string[]; error: string };
+
 export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig, testCases, onToast }: Props): ReactNode {
   const [view, setView] = useState<View>('preview');
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +125,13 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [streamDone, setStreamDone] = useState(false);
   const [retryingModule, setRetryingModule] = useState<string | null>(null);
+
+  // MCP state
+  const [mcpToggles, setMcpToggles] = useState<Record<string, boolean>>({});
+  const [mcpHealth, setMcpHealth] = useState<Record<string, MCPServerHealth>>({});
+  const [mcpHealthChecking, setMcpHealthChecking] = useState(false);
+  const [mcpToolCallsByModule, setMcpToolCallsByModule] = useState<Record<string, MCPToolCallEntry[]>>({});
+  const currentRunningModuleRef = useRef<string | null>(null);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [copiedModule, setCopiedModule] = useState<string | null>(null);
@@ -170,11 +187,39 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
     setSavingModule(null);
     setSaveFeedback(null);
     setPendingOverwrite(null);
+    setMcpToolCallsByModule({});
+    currentRunningModuleRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
     if (staleTimerRef.current !== null) {
       window.clearInterval(staleTimerRef.current);
       staleTimerRef.current = null;
+    }
+
+    // Initialise MCP toggles from discovered servers (all enabled by default)
+    const servers = frameworkConfig.schemaPreview?.mcp_servers ?? [];
+    const initialToggles: Record<string, boolean> = {};
+    servers.forEach(s => { initialToggles[s.name] = true; });
+    setMcpToggles(initialToggles);
+    setMcpHealth({});
+
+    // Health-check all discovered servers
+    if (servers.length > 0) {
+      setMcpHealthChecking(true);
+      fetch(`${API_BASE}/check-mcp-servers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          framework_path: frameworkConfig.frameworkPath,
+          server_names: servers.map(s => s.name),
+        }),
+      })
+        .then(r => r.json().catch(() => ({})))
+        .then(data => {
+          if (data?.servers) setMcpHealth(data.servers as Record<string, MCPServerHealth>);
+        })
+        .catch(() => {})
+        .finally(() => setMcpHealthChecking(false));
     }
   }, [isOpen]);
 
@@ -297,6 +342,10 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
         return true;
       };
 
+      const enabledMcpServers = Object.entries(mcpToggles)
+        .filter(([name, on]) => on && mcpHealth[name]?.ok !== false)
+        .map(([name]) => name);
+
       const res = await fetch(`${API_BASE}/generate-test-scripts`, {
         method: 'POST',
         headers: {
@@ -313,6 +362,7 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
           refinement_instruction: '',
           request_id: requestId,
           config_context: frameworkConfig.schemaPreview?.config_context,
+          enabled_mcp_servers: enabledMcpServers.length > 0 ? enabledMcpServers : null,
         }),
         signal: controller.signal,
       });
@@ -364,7 +414,42 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
             // Transition to results view as soon as start arrives so user sees live progress
             setView('results');
             break;
+          case 'mcp_connecting':
+          case 'mcp_ready':
+          case 'mcp_disconnected':
+            // informational — no state update needed, handled by tool_call feed
+            break;
+          case 'mcp_tool_call': {
+            const mod = currentRunningModuleRef.current;
+            if (mod) {
+              setMcpToolCallsByModule(prev => {
+                const existing = prev[mod] ?? [];
+                // update existing entry if same server+tool is calling→done/error
+                if (payload.status !== 'calling') {
+                  const idx = [...existing].reverse().findIndex(
+                    e => e.server === payload.server && e.tool === payload.tool && e.status === 'calling'
+                  );
+                  if (idx !== -1) {
+                    const realIdx = existing.length - 1 - idx;
+                    const updated = [...existing];
+                    updated[realIdx] = { ...updated[realIdx], status: payload.status, result_preview: payload.result_preview };
+                    return { ...prev, [mod]: updated };
+                  }
+                }
+                const entry: MCPToolCallEntry = {
+                  server: payload.server,
+                  tool: payload.tool,
+                  args: payload.args ?? {},
+                  status: payload.status,
+                  result_preview: payload.result_preview,
+                };
+                return { ...prev, [mod]: [...existing, entry] };
+              });
+            }
+            break;
+          }
           case 'group_start':
+            currentRunningModuleRef.current = payload.module;
             setProgress(prev => prev.map(p =>
               p.module === payload.module ? { ...p, status: 'running' as GroupStatus } : p,
             ));
@@ -910,6 +995,59 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
         ))}
       </div>
 
+      {/* MCP Servers section */}
+      {(() => {
+        const servers = frameworkConfig.schemaPreview?.mcp_servers ?? [];
+        if (servers.length === 0) return null;
+        const anyEnabledUnhealthy = servers.some(s =>
+          mcpToggles[s.name] && mcpHealth[s.name] && !mcpHealth[s.name].ok
+        );
+        return (
+          <div style={{ marginBottom: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '0.55rem 0.9rem', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)' }}>MCP Servers</span>
+              {mcpHealthChecking && <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                Enable to allow LLM to inspect live app during generation
+              </span>
+            </div>
+            {anyEnabledUnhealthy && (
+              <div style={{ padding: '0.55rem 0.9rem', backgroundColor: 'rgba(234,179,8,0.08)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.77rem', color: '#92400e' }}>
+                <AlertTriangle size={13} />
+                <span>One or more enabled MCP servers failed health check. They will be skipped during generation.</span>
+                <button style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontWeight: 600, fontSize: '0.77rem', padding: '0 0.3rem' }} onClick={handleStartGenerate}>
+                  Proceed anyway
+                </button>
+              </div>
+            )}
+            {servers.map((srv, idx) => {
+              const health = mcpHealth[srv.name];
+              const enabled = mcpToggles[srv.name] ?? true;
+              return (
+                <div key={srv.name} style={{ padding: '0.55rem 0.9rem', borderBottom: idx < servers.length - 1 ? '1px solid var(--border-color)' : 'none', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <input type="checkbox" checked={enabled} onChange={e => setMcpToggles(p => ({ ...p, [srv.name]: e.target.checked }))} style={{ cursor: 'pointer' }} />
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--text-main)' }}>{srv.name}</span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>{srv.source_file}</span>
+                  </div>
+                  {mcpHealthChecking && !health && <Loader size={12} style={{ color: 'var(--text-muted)' }} />}
+                  {health?.ok && (
+                    <span style={{ fontSize: '0.72rem', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <CheckCircle2 size={12} /> {health.tools.length} tool{health.tools.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {health && !health.ok && (
+                    <span title={health.error} style={{ fontSize: '0.72rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <XCircle size={12} /> unreachable
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
         <button style={S.btnOutline as React.CSSProperties} onClick={onClose}>Cancel</button>
         <button style={S.btnPrimary(false) as React.CSSProperties} onClick={handleStartGenerate}>
@@ -1013,6 +1151,36 @@ export default function ScriptGenerationModal({ isOpen, onClose, frameworkConfig
             );
           })}
         </div>
+        {/* MCP tool call feed — shown for modules that used MCP tools */}
+        {Object.entries(mcpToolCallsByModule).map(([mod, calls]) => {
+          if (calls.length === 0) return null;
+          return (
+            <div key={mod} style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.3rem' }}>
+                MCP · {mod}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '0.18rem' }}>
+                {calls.map((c, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem' }}>
+                    {c.status === 'calling'
+                      ? <Loader size={10} className="spin" style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                      : c.status === 'done'
+                        ? <CheckCircle2 size={10} style={{ color: '#16a34a', flexShrink: 0 }} />
+                        : <XCircle size={10} style={{ color: '#dc2626', flexShrink: 0 }} />}
+                    <span style={{ color: '#0369a1', fontWeight: 600 }}>{c.server}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>›</span>
+                    <span style={{ color: 'var(--text-main)' }}>{c.tool}</span>
+                    {c.result_preview && c.status === 'done' && (
+                      <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>
+                        — {c.result_preview}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };

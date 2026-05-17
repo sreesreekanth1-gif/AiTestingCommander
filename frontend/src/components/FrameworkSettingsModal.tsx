@@ -39,6 +39,16 @@ function deobfuscate(encoded: string): string {
 const LLM_PROVIDERS = ['GROQ', 'Grok', 'Claude', 'Ollama', 'OpenRouter'] as const;
 type LlmProvider = typeof LLM_PROVIDERS[number];
 
+export interface MCPServerDescriptor {
+  name: string;
+  command: string;
+  args: string[];
+  transport: string;
+  source_file: string;
+  env: Record<string, string>;
+  enabled: boolean;
+}
+
 export interface FrameworkSchemaPreview {
   framework_path?: string;
   tech_stack?: { language?: string; test_framework?: string; build_tool?: string };
@@ -48,6 +58,7 @@ export interface FrameworkSchemaPreview {
   base_class_names?: string[];
   page_object_names?: string[];
   sample_imports?: string[];
+  mcp_servers?: MCPServerDescriptor[];
   config_context?: {
     discovered_files: string[];
     env_vars: Record<string, string>;
@@ -461,6 +472,33 @@ export default function FrameworkSettingsModal({ isOpen, onClose, onSaved, onCle
             <div>Base classes: <span style={{ color: 'var(--text-main)' }}>{schemaPreview.base_class_names.join(', ')}</span></div>
           )}
         </div>
+
+        {/* MCP Servers */}
+        {schemaPreview.mcp_servers && schemaPreview.mcp_servers.length > 0 && (
+          <div style={{ marginTop: '0.6rem', paddingTop: '0.6rem', borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+              MCP Servers ({schemaPreview.mcp_servers.length})
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: '0.4rem' }}>
+              {schemaPreview.mcp_servers.map(srv => (
+                <span key={srv.name} title={`${srv.command} ${srv.args.join(' ')} — from ${srv.source_file}`} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                  padding: '0.15rem 0.55rem', borderRadius: '999px',
+                  fontSize: '0.72rem', fontWeight: 600,
+                  backgroundColor: '#e0f2fe', color: '#0369a1',
+                  border: '1px solid #bae6fd',
+                }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#0ea5e9', flexShrink: 0 }} />
+                  {srv.name}
+                  <span style={{ fontWeight: 400, color: '#64748b' }}>{srv.transport}</span>
+                </span>
+              ))}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              Available during script generation. Configure in mcp.json or .cursor/mcp.json.
+            </div>
+          </div>
+        )}
 
         {/* Configuration context */}
         {config.discovered_files && config.discovered_files.length > 0 && (

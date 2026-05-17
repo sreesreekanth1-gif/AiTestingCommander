@@ -36,6 +36,7 @@ from llm_router import (
     _call_openrouter,
     _request_with_retry,
     _suggest_alternate_model,
+    call_with_tools,
 )
 from script_policy_validator import validate_generation
 
@@ -883,14 +884,19 @@ def generate_script_for_group(
     llm_config: Dict[str, Any],
     refinement_instruction: Optional[str] = None,
     config_context: Optional[Dict[str, Any]] = None,
+    mcp_sessions: Optional[Dict[str, Any]] = None,
+    on_mcp_tool_call: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Generate test-script source code for a single module group.
     Args:
-        framework_schema: output of analyze_framework()
-        group: { "module": str, "test_cases": [tc, ...] }
-        llm_config: { "llmProvider", "llmApiKey", "llmModel", "llmEndpoint" }
+        framework_schema:  output of analyze_framework()
+        group:             { "module": str, "test_cases": [tc, ...] }
+        llm_config:        { "llmProvider", "llmApiKey", "llmModel", "llmEndpoint" }
         refinement_instruction: optional extra instruction to steer regeneration
+        config_context:    parsed env/config info (passed through, not used directly)
+        mcp_sessions:      optional {name: MCPSession} — enables MCP tool-use loop
+        on_mcp_tool_call:  optional callback(server, tool, args, status, preview)
     Returns:
         {
           "module": str,
@@ -921,6 +927,17 @@ def generate_script_for_group(
     max_repairs = int((policy.get("validation") or {}).get("auto_repair_retries", 2) or 2)
     max_repairs = max(0, min(max_repairs, 2))
 
+    # Prepare MCP tools once — reused across repair attempts
+    _mcp_tools: List[Dict[str, Any]] = []
+    _mcp_executor = None
+    if mcp_sessions:
+        from mcp_client import get_all_tools_for_llm, execute_tool_call
+        _mcp_tools = get_all_tools_for_llm(mcp_sessions, provider=provider)
+        def _mcp_executor(name: str, args: dict) -> str:
+            return execute_tool_call(mcp_sessions, name, args)
+        print(f"[ScriptGen] MCP enabled: {len(mcp_sessions)} server(s), "
+              f"{len(_mcp_tools)} tool(s) for module={module_name!r}")
+
     warnings: List[str] = []
     last_plan: Optional[Dict[str, Any]] = None
     last_validation: Dict[str, Any] = {"passed": True, "violations": [], "warnings": []}
@@ -939,6 +956,12 @@ def generate_script_for_group(
                 f"max_tokens={groq_max_tokens}"
             )
         try:
+            if _mcp_tools and _mcp_executor:
+                return call_with_tools(
+                    provider, api_key, model or "", endpoint,
+                    active_messages, _mcp_tools, _mcp_executor,
+                    on_tool_call=on_mcp_tool_call,
+                )
             return _dispatch(
                 provider, api_key, model or "", endpoint, active_messages,
                 groq_max_tokens=groq_max_tokens,
